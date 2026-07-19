@@ -1,0 +1,13 @@
+{
+  "id": "gas",
+  "display_name": "Natural Gas",
+  "state": "gas",
+  "port_type": 2,
+  "unit": "units",
+  "colour": [
+    0.72,
+    0.76,
+    0.82,
+    1.0
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "id": "wood_chips",
+  "display_name": "Wood Chips",
+  "state": "solid",
+  "port_type": 0,
+  "unit": "chips",
+  "colour": [
+    0.78,
+    0.62,
+    0.34,
+    1.0
+  ]
+}

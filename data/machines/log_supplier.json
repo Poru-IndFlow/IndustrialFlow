@@ -1,0 +1,20 @@
+{
+  "id": "log_supplier",
+  "display_name": "Log Supplier",
+  "category": "supplier",
+  "processing_mode": "supplier",
+  "cycle_time": 2.0,
+  "inputs": [],
+  "outputs": [
+    {
+      "resource": "logs",
+      "formula": "requested_logs"
+    }
+  ],
+  "variables": {
+    "requested_logs": 1.0
+  },
+  "internal_storage": {
+    "logs": 100.0
+  }
+}

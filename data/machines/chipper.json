@@ -1,0 +1,23 @@
+{
+  "id": "chipper",
+  "display_name": "Chipper",
+  "category": "processing",
+  "processing_mode": "continuous",
+  "cycle_time": 4.0,
+  "inputs": [
+    {
+      "resource": "logs",
+      "amount": 1.0
+    }
+  ],
+  "outputs": [
+    {
+      "resource": "wood_chips",
+      "formula": "logs * 100"
+    }
+  ],
+  "internal_storage": {
+    "logs": 10.0,
+    "wood_chips": 1000.0
+  }
+}

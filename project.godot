@@ -1,0 +1,40 @@
+; Engine configuration file.
+config_version=5
+
+[application]
+config/name="IndustrialFlow Editor"
+run/main_scene="res://scenes/main.tscn"
+
+[display]
+window/size/viewport_width=1600
+window/size/viewport_height=900
+window/size/window_width_override=1600
+window/size/window_height_override=900
+window/stretch/mode="canvas_items"
+
+[input]
+undo={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":90,"ctrl_pressed":true)]
+}
+redo={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":89,"ctrl_pressed":true)]
+}
+delete_selected={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":4194308)]
+}
+save_factory={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":83,"ctrl_pressed":true)]
+}
+load_factory={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":76,"ctrl_pressed":true)]
+}
+
+[rendering]
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+environment/defaults/default_clear_color=Color(0.05, 0.055, 0.065, 1)

@@ -1,0 +1,13 @@
+{
+  "id": "water",
+  "display_name": "Water",
+  "state": "liquid",
+  "port_type": 1,
+  "unit": "litres",
+  "colour": [
+    0.3,
+    0.62,
+    0.95,
+    1.0
+  ]
+}

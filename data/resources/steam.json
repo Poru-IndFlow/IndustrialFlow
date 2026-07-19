@@ -1,0 +1,13 @@
+{
+  "id": "steam",
+  "display_name": "Steam",
+  "state": "gas",
+  "port_type": 2,
+  "unit": "units",
+  "colour": [
+    0.88,
+    0.9,
+    0.94,
+    1.0
+  ]
+}
