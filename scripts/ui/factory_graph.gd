@@ -10,6 +10,8 @@ var output_ports: Dictionary = {}
 var input_port_resources: Dictionary = {}
 var output_port_resources: Dictionary = {}
 var state_labels: Dictionary = {}
+var resource_labels: Dictionary = {}
+
 
 func _ready() -> void:
 	connection_request.connect(_on_connection_request)
@@ -17,40 +19,6 @@ func _ready() -> void:
 	delete_nodes_request.connect(_on_delete_nodes_request)
 	right_disconnects = true
 
-func _on_disconnection_request(
-	from_node: StringName,
-	from_port: int,
-	to_node: StringName,
-	to_port: int
-) -> void:
-	if factory == null:
-		return
-
-	var from_id := str(from_node)
-	var to_id := str(to_node)
-	var output_key := _indexed_port_key(from_id, from_port)
-	var input_key := _indexed_port_key(to_id, to_port)
-
-	if not output_port_resources.has(output_key):
-		return
-
-	if not input_port_resources.has(input_key):
-		return
-
-	var output_resource := str(output_port_resources[output_key])
-	var input_resource := str(input_port_resources[input_key])
-
-	if output_resource != input_resource:
-		return
-
-	var connection := factory.find_connection(
-		from_id,
-		to_id,
-		output_resource
-	)
-
-	if connection != null:
-		factory.remove_connection(connection)
 
 func bind_factory(new_factory: FactoryModel) -> void:
 	if factory != null:
@@ -64,7 +32,12 @@ func bind_factory(new_factory: FactoryModel) -> void:
 
 	factory.event_bus.machine_added.connect(_on_machine_added)
 	factory.event_bus.machine_removed.connect(_on_machine_removed)
-	factory.event_bus.machine_state_changed.connect(_on_machine_state_changed)
+	factory.event_bus.machine_state_changed.connect(
+		_on_machine_state_changed
+	)
+	factory.event_bus.machine_inventory_changed.connect(
+		_on_machine_inventory_changed
+	)
 	factory.event_bus.connection_added.connect(_on_connection_added)
 	factory.event_bus.connection_removed.connect(_on_connection_removed)
 
@@ -92,6 +65,7 @@ func clear_graph() -> void:
 	input_port_resources.clear()
 	output_port_resources.clear()
 	state_labels.clear()
+	resource_labels.clear()
 
 	for child: Node in get_children():
 		if child is GraphNode:
@@ -126,11 +100,21 @@ func add_machine_node(machine: MachineModel) -> void:
 		)
 
 		var resource_label := Label.new()
-		resource_label.text = resource_id.replace("_", " ").capitalize()
 		resource_label.horizontal_alignment = (
 			HORIZONTAL_ALIGNMENT_CENTER
 		)
 		node.add_child(resource_label)
+
+		resource_labels[_port_key(
+			machine.instance_id,
+			resource_id
+		)] = resource_label
+
+		_update_resource_label(
+			machine,
+			resource_id,
+			resource_label
+		)
 
 		var color := _resource_color(resource_id)
 		node.set_slot(
@@ -207,6 +191,30 @@ func _has_resource(entries: Array, resource_id: String) -> bool:
 	return false
 
 
+func _update_resource_label(
+	machine: MachineModel,
+	resource_id: String,
+	label: Label
+) -> void:
+	var display_name := resource_id.replace("_", " ").capitalize()
+	var amount := machine.inventory.get_amount(resource_id)
+
+	label.text = "%s: %.1f" % [display_name, amount]
+
+
+func _update_machine_inventory(machine: MachineModel) -> void:
+	for resource_id: String in _get_machine_resources(machine):
+		var key := _port_key(machine.instance_id, resource_id)
+		var resource_label := resource_labels.get(key) as Label
+
+		if resource_label != null:
+			_update_resource_label(
+				machine,
+				resource_id,
+				resource_label
+			)
+
+
 func _rebuild_connections() -> void:
 	clear_connections()
 
@@ -258,25 +266,66 @@ func _resource_color(resource_id: String) -> Color:
 
 func _disconnect_factory_signals() -> void:
 	var machine_callback := Callable(self, "_on_machine_added")
+	var machine_removed_callback := Callable(
+		self,
+		"_on_machine_removed"
+	)
+	var state_callback := Callable(
+		self,
+		"_on_machine_state_changed"
+	)
+	var inventory_callback := Callable(
+		self,
+		"_on_machine_inventory_changed"
+	)
 	var added_callback := Callable(self, "_on_connection_added")
-	var removed_callback := Callable(self, "_on_connection_removed")
-	var machine_removed_callback := Callable(self, "_on_machine_removed")
-	var state_callback := Callable(self, "_on_machine_state_changed")
+	var removed_callback := Callable(
+		self,
+		"_on_connection_removed"
+	)
 
-	if factory.event_bus.machine_state_changed.is_connected(state_callback):
-		factory.event_bus.machine_state_changed.disconnect(state_callback)
+	if factory.event_bus.machine_added.is_connected(
+		machine_callback
+	):
+		factory.event_bus.machine_added.disconnect(
+			machine_callback
+		)
 
-	if factory.event_bus.machine_added.is_connected(machine_callback):
-		factory.event_bus.machine_added.disconnect(machine_callback)
+	if factory.event_bus.machine_removed.is_connected(
+		machine_removed_callback
+	):
+		factory.event_bus.machine_removed.disconnect(
+			machine_removed_callback
+		)
 
-	if factory.event_bus.machine_removed.is_connected(machine_removed_callback):
-		factory.event_bus.machine_removed.disconnect(machine_removed_callback)
+	if factory.event_bus.machine_state_changed.is_connected(
+		state_callback
+	):
+		factory.event_bus.machine_state_changed.disconnect(
+			state_callback
+		)
 
-	if factory.event_bus.connection_added.is_connected(added_callback):
-		factory.event_bus.connection_added.disconnect(added_callback)
+	if factory.event_bus.machine_inventory_changed.is_connected(
+		inventory_callback
+	):
+		factory.event_bus.machine_inventory_changed.disconnect(
+			inventory_callback
+		)
 
-	if factory.event_bus.connection_removed.is_connected(removed_callback):
-		factory.event_bus.connection_removed.disconnect(removed_callback)
+	if factory.event_bus.connection_added.is_connected(
+		added_callback
+	):
+		factory.event_bus.connection_added.disconnect(
+			added_callback
+		)
+
+	if factory.event_bus.connection_removed.is_connected(
+		removed_callback
+	):
+		factory.event_bus.connection_removed.disconnect(
+			removed_callback
+		)
+
 
 func _on_connection_request(
 	from_node: StringName,
@@ -323,6 +372,43 @@ func _on_connection_request(
 		)
 	)
 
+
+func _on_disconnection_request(
+	from_node: StringName,
+	from_port: int,
+	to_node: StringName,
+	to_port: int
+) -> void:
+	if factory == null:
+		return
+
+	var from_id := str(from_node)
+	var to_id := str(to_node)
+	var output_key := _indexed_port_key(from_id, from_port)
+	var input_key := _indexed_port_key(to_id, to_port)
+
+	if not output_port_resources.has(output_key):
+		return
+
+	if not input_port_resources.has(input_key):
+		return
+
+	var output_resource := str(output_port_resources[output_key])
+	var input_resource := str(input_port_resources[input_key])
+
+	if output_resource != input_resource:
+		return
+
+	var connection := factory.find_connection(
+		from_id,
+		to_id,
+		output_resource
+	)
+
+	if connection != null:
+		factory.remove_connection(connection)
+
+
 func _on_delete_nodes_request(nodes: Array[StringName]) -> void:
 	if factory == null:
 		return
@@ -345,7 +431,9 @@ func _on_machine_removed(machine_id: String) -> void:
 	_remove_machine_port_data(output_ports, machine_id)
 	_remove_machine_port_data(input_port_resources, machine_id)
 	_remove_machine_port_data(output_port_resources, machine_id)
+	_remove_machine_port_data(resource_labels, machine_id)
 	state_labels.erase(machine_id)
+
 	_rebuild_connections()
 
 
@@ -359,6 +447,7 @@ func _remove_machine_port_data(
 		if str(key).begins_with(prefix):
 			port_data.erase(key)
 
+
 func _on_machine_state_changed(machine: MachineModel) -> void:
 	if machine == null:
 		return
@@ -369,6 +458,12 @@ func _on_machine_state_changed(machine: MachineModel) -> void:
 
 	if state_label != null:
 		state_label.text = "State: %s" % _state_text(machine.state)
+
+
+func _on_machine_inventory_changed(machine: MachineModel) -> void:
+	if machine != null:
+		_update_machine_inventory(machine)
+
 
 func _on_machine_added(machine: MachineModel) -> void:
 	add_machine_node(machine)
