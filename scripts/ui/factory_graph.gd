@@ -9,7 +9,7 @@ var input_ports: Dictionary = {}
 var output_ports: Dictionary = {}
 var input_port_resources: Dictionary = {}
 var output_port_resources: Dictionary = {}
-
+var state_labels: Dictionary = {}
 
 func _ready() -> void:
 	connection_request.connect(_on_connection_request)
@@ -64,6 +64,7 @@ func bind_factory(new_factory: FactoryModel) -> void:
 
 	factory.event_bus.machine_added.connect(_on_machine_added)
 	factory.event_bus.machine_removed.connect(_on_machine_removed)
+	factory.event_bus.machine_state_changed.connect(_on_machine_state_changed)
 	factory.event_bus.connection_added.connect(_on_connection_added)
 	factory.event_bus.connection_removed.connect(_on_connection_removed)
 
@@ -90,6 +91,7 @@ func clear_graph() -> void:
 	output_ports.clear()
 	input_port_resources.clear()
 	output_port_resources.clear()
+	state_labels.clear()
 
 	for child: Node in get_children():
 		if child is GraphNode:
@@ -106,6 +108,7 @@ func add_machine_node(machine: MachineModel) -> void:
 	var state_label := Label.new()
 	state_label.text = "State: %s" % _state_text(machine.state)
 	node.add_child(state_label)
+	state_labels[machine.instance_id] = state_label
 
 	var resources := _get_machine_resources(machine)
 	var input_port := 0
@@ -258,6 +261,10 @@ func _disconnect_factory_signals() -> void:
 	var added_callback := Callable(self, "_on_connection_added")
 	var removed_callback := Callable(self, "_on_connection_removed")
 	var machine_removed_callback := Callable(self, "_on_machine_removed")
+	var state_callback := Callable(self, "_on_machine_state_changed")
+
+	if factory.event_bus.machine_state_changed.is_connected(state_callback):
+		factory.event_bus.machine_state_changed.disconnect(state_callback)
 
 	if factory.event_bus.machine_added.is_connected(machine_callback):
 		factory.event_bus.machine_added.disconnect(machine_callback)
@@ -338,7 +345,7 @@ func _on_machine_removed(machine_id: String) -> void:
 	_remove_machine_port_data(output_ports, machine_id)
 	_remove_machine_port_data(input_port_resources, machine_id)
 	_remove_machine_port_data(output_port_resources, machine_id)
-
+	state_labels.erase(machine_id)
 	_rebuild_connections()
 
 
@@ -351,6 +358,17 @@ func _remove_machine_port_data(
 	for key: Variant in port_data.keys():
 		if str(key).begins_with(prefix):
 			port_data.erase(key)
+
+func _on_machine_state_changed(machine: MachineModel) -> void:
+	if machine == null:
+		return
+
+	var state_label := state_labels.get(
+		machine.instance_id
+	) as Label
+
+	if state_label != null:
+		state_label.text = "State: %s" % _state_text(machine.state)
 
 func _on_machine_added(machine: MachineModel) -> void:
 	add_machine_node(machine)
