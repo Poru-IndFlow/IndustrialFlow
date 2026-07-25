@@ -13,8 +13,44 @@ var output_port_resources: Dictionary = {}
 
 func _ready() -> void:
 	connection_request.connect(_on_connection_request)
+	disconnection_request.connect(_on_disconnection_request)
+	right_disconnects = true
 
+func _on_disconnection_request(
+	from_node: StringName,
+	from_port: int,
+	to_node: StringName,
+	to_port: int
+) -> void:
+	if factory == null:
+		return
 
+	var from_id := str(from_node)
+	var to_id := str(to_node)
+	var output_key := _indexed_port_key(from_id, from_port)
+	var input_key := _indexed_port_key(to_id, to_port)
+
+	if not output_port_resources.has(output_key):
+		return
+
+	if not input_port_resources.has(input_key):
+		return
+
+	var output_resource := str(output_port_resources[output_key])
+	var input_resource := str(input_port_resources[input_key])
+
+	if output_resource != input_resource:
+		return
+
+	var connection := factory.find_connection(
+		from_id,
+		to_id,
+		output_resource
+	)
+
+	if connection != null:
+		factory.remove_connection(connection)
+        
 func bind_factory(new_factory: FactoryModel) -> void:
 	if factory != null:
 		_disconnect_factory_signals()
