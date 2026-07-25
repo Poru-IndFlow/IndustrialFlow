@@ -14,6 +14,7 @@ var output_port_resources: Dictionary = {}
 func _ready() -> void:
 	connection_request.connect(_on_connection_request)
 	disconnection_request.connect(_on_disconnection_request)
+	delete_nodes_request.connect(_on_delete_nodes_request)
 	right_disconnects = true
 
 func _on_disconnection_request(
@@ -50,7 +51,7 @@ func _on_disconnection_request(
 
 	if connection != null:
 		factory.remove_connection(connection)
-        
+
 func bind_factory(new_factory: FactoryModel) -> void:
 	if factory != null:
 		_disconnect_factory_signals()
@@ -62,6 +63,7 @@ func bind_factory(new_factory: FactoryModel) -> void:
 		return
 
 	factory.event_bus.machine_added.connect(_on_machine_added)
+	factory.event_bus.machine_removed.connect(_on_machine_removed)
 	factory.event_bus.connection_added.connect(_on_connection_added)
 	factory.event_bus.connection_removed.connect(_on_connection_removed)
 
@@ -255,16 +257,19 @@ func _disconnect_factory_signals() -> void:
 	var machine_callback := Callable(self, "_on_machine_added")
 	var added_callback := Callable(self, "_on_connection_added")
 	var removed_callback := Callable(self, "_on_connection_removed")
+	var machine_removed_callback := Callable(self, "_on_machine_removed")
 
 	if factory.event_bus.machine_added.is_connected(machine_callback):
 		factory.event_bus.machine_added.disconnect(machine_callback)
+
+	if factory.event_bus.machine_removed.is_connected(machine_removed_callback):
+		factory.event_bus.machine_removed.disconnect(machine_removed_callback)
 
 	if factory.event_bus.connection_added.is_connected(added_callback):
 		factory.event_bus.connection_added.disconnect(added_callback)
 
 	if factory.event_bus.connection_removed.is_connected(removed_callback):
 		factory.event_bus.connection_removed.disconnect(removed_callback)
-
 
 func _on_connection_request(
 	from_node: StringName,
@@ -311,6 +316,41 @@ func _on_connection_request(
 		)
 	)
 
+func _on_delete_nodes_request(nodes: Array[StringName]) -> void:
+	if factory == null:
+		return
+
+	for node_name: StringName in nodes:
+		factory.remove_machine(str(node_name))
+
+	machine_selected.emit(null)
+
+
+func _on_machine_removed(machine_id: String) -> void:
+	var graph_node := get_node_or_null(
+		NodePath(machine_id)
+	) as GraphNode
+
+	if graph_node != null:
+		graph_node.queue_free()
+
+	_remove_machine_port_data(input_ports, machine_id)
+	_remove_machine_port_data(output_ports, machine_id)
+	_remove_machine_port_data(input_port_resources, machine_id)
+	_remove_machine_port_data(output_port_resources, machine_id)
+
+	_rebuild_connections()
+
+
+func _remove_machine_port_data(
+	port_data: Dictionary,
+	machine_id: String
+) -> void:
+	var prefix := "%s:" % machine_id
+
+	for key: Variant in port_data.keys():
+		if str(key).begins_with(prefix):
+			port_data.erase(key)
 
 func _on_machine_added(machine: MachineModel) -> void:
 	add_machine_node(machine)
