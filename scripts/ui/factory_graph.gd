@@ -7,6 +7,12 @@ signal machine_selected(machine: MachineModel)
 var factory: FactoryModel
 var input_ports: Dictionary = {}
 var output_ports: Dictionary = {}
+var input_port_resources: Dictionary = {}
+var output_port_resources: Dictionary = {}
+
+
+func _ready() -> void:
+	connection_request.connect(_on_connection_request)
 
 
 func bind_factory(new_factory: FactoryModel) -> void:
@@ -44,6 +50,8 @@ func clear_graph() -> void:
 	clear_connections()
 	input_ports.clear()
 	output_ports.clear()
+	input_port_resources.clear()
+	output_port_resources.clear()
 
 	for child: Node in get_children():
 		if child is GraphNode:
@@ -95,15 +103,29 @@ func add_machine_node(machine: MachineModel) -> void:
 		)
 
 		if accepts:
-			input_ports[_port_key(machine.instance_id, resource_id)] = (
+			input_ports[_port_key(
+				machine.instance_id,
+				resource_id
+			)] = input_port
+
+			input_port_resources[_indexed_port_key(
+				machine.instance_id,
 				input_port
-			)
+			)] = resource_id
+
 			input_port += 1
 
 		if produces:
-			output_ports[_port_key(machine.instance_id, resource_id)] = (
+			output_ports[_port_key(
+				machine.instance_id,
+				resource_id
+			)] = output_port
+
+			output_port_resources[_indexed_port_key(
+				machine.instance_id,
 				output_port
-			)
+			)] = resource_id
+
 			output_port += 1
 
 		row += 1
@@ -179,6 +201,10 @@ func _port_key(machine_id: String, resource_id: String) -> String:
 	return "%s:%s" % [machine_id, resource_id]
 
 
+func _indexed_port_key(machine_id: String, port: int) -> String:
+	return "%s:%d" % [machine_id, port]
+
+
 func _resource_color(resource_id: String) -> Color:
 	match resource_id:
 		"logs":
@@ -202,6 +228,52 @@ func _disconnect_factory_signals() -> void:
 
 	if factory.event_bus.connection_removed.is_connected(removed_callback):
 		factory.event_bus.connection_removed.disconnect(removed_callback)
+
+
+func _on_connection_request(
+	from_node: StringName,
+	from_port: int,
+	to_node: StringName,
+	to_port: int
+) -> void:
+	if factory == null:
+		return
+
+	var from_id := str(from_node)
+	var to_id := str(to_node)
+
+	if from_id == to_id:
+		return
+
+	var output_key := _indexed_port_key(from_id, from_port)
+	var input_key := _indexed_port_key(to_id, to_port)
+
+	if not output_port_resources.has(output_key):
+		return
+
+	if not input_port_resources.has(input_key):
+		return
+
+	var output_resource := str(output_port_resources[output_key])
+	var input_resource := str(input_port_resources[input_key])
+
+	if output_resource != input_resource:
+		return
+
+	var from_machine := factory.get_machine(from_id)
+	var to_machine := factory.get_machine(to_id)
+
+	if from_machine == null or to_machine == null:
+		return
+
+	factory.add_connection(
+		ConnectionModel.new(
+			from_machine,
+			to_machine,
+			output_resource,
+			1.0
+		)
+	)
 
 
 func _on_machine_added(machine: MachineModel) -> void:
