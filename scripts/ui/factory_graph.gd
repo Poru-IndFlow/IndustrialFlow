@@ -95,6 +95,7 @@ func clear_graph() -> void:
 
 	for child: Node in get_children():
 		if child is GraphNode:
+			remove_child(child)
 			child.queue_free()
 
 	selection_changed.emit(0)
@@ -571,6 +572,7 @@ func _on_machine_removed(machine_id: String) -> void:
 	) as GraphNode
 
 	if graph_node != null:
+		remove_child(graph_node)
 		graph_node.queue_free()
 
 	_remove_machine_port_data(input_ports, machine_id)
