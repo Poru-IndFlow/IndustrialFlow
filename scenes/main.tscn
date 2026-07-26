@@ -1,4 +1,4 @@
-[gd_scene load_steps=7 format=3]
+[gd_scene load_steps=8 format=3]
 
 [ext_resource type="Script" path="res://scripts/ui/factory_graph.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/app/app_controller.gd" id="2"]
@@ -6,6 +6,7 @@
 [ext_resource type="Script" path="res://scripts/ui/machine_inspector.gd" id="4"]
 [ext_resource type="Script" path="res://scripts/ui/theme_manager.gd" id="5"]
 [ext_resource type="Script" path="res://scripts/ui/refresh_manager.gd" id="6"]
+[ext_resource type="Script" path="res://scripts/ui/editor_toolbar.gd" id="7"]
 
 [node name="Main" type="Control"]
 layout_mode = 3
@@ -26,32 +27,7 @@ grow_vertical = 2
 [node name="Toolbar" type="HBoxContainer" parent="RootVBox"]
 custom_minimum_size = Vector2(0, 42)
 layout_mode = 2
-
-[node name="SaveButton" type="Button" parent="RootVBox/Toolbar"]
-layout_mode = 2
-text = "Save  Ctrl+S"
-
-[node name="LoadButton" type="Button" parent="RootVBox/Toolbar"]
-layout_mode = 2
-text = "Load  Ctrl+L"
-
-[node name="UndoButton" type="Button" parent="RootVBox/Toolbar"]
-layout_mode = 2
-text = "Undo  Ctrl+Z"
-
-[node name="RedoButton" type="Button" parent="RootVBox/Toolbar"]
-layout_mode = 2
-text = "Redo  Ctrl+Y"
-
-[node name="DeleteButton" type="Button" parent="RootVBox/Toolbar"]
-layout_mode = 2
-text = "Delete Selected"
-
-[node name="StatusLabel" type="Label" parent="RootVBox/Toolbar"]
-layout_mode = 2
-size_flags_horizontal = 3
-horizontal_alignment = 2
-text = "Ready"
+script = ExtResource("7")
 
 [node name="Workspace" type="HSplitContainer" parent="RootVBox"]
 layout_mode = 2

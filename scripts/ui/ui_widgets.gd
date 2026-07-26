@@ -60,6 +60,17 @@ static func create_action_button(
 	return button
 
 
+static func create_toolbar_button(
+	text: String,
+	tooltip := ""
+) -> Button:
+	var button := Button.new()
+	button.text = text
+	button.tooltip_text = tooltip
+	button.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	return button
+
+
 static func create_status_badge(
 	text: String,
 	color: Color

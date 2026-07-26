@@ -2,6 +2,8 @@ extends GraphEdit
 
 
 signal machine_selected(machine: MachineModel)
+signal selection_changed(selected_count: int)
+signal machines_deleted(deleted_count: int)
 
 
 var factory: FactoryModel
@@ -13,6 +15,7 @@ var output_port_resources: Dictionary = {}
 var state_labels: Dictionary = {}
 var resource_labels: Dictionary = {}
 var dirty_machines: Dictionary = {}
+var selection_notification_pending := false
 
 
 func _ready() -> void:
@@ -64,6 +67,10 @@ func request_machine(definition_id: String) -> void:
 		factory.add_machine(machine)
 
 
+func delete_selected_machines() -> int:
+	return _delete_machine_ids(_get_selected_machine_ids())
+
+
 func clear_graph() -> void:
 	clear_connections()
 	input_ports.clear()
@@ -77,6 +84,8 @@ func clear_graph() -> void:
 	for child: Node in get_children():
 		if child is GraphNode:
 			child.queue_free()
+
+	selection_changed.emit(0)
 
 
 func add_machine_node(machine: MachineModel) -> void:
@@ -164,6 +173,9 @@ func add_machine_node(machine: MachineModel) -> void:
 
 	node.node_selected.connect(
 		_on_graph_node_selected.bind(machine)
+	)
+	node.node_deselected.connect(
+		_on_graph_node_deselected
 	)
 	node.position_offset_changed.connect(
 		_on_node_position_changed.bind(node, machine)
@@ -417,13 +429,36 @@ func _on_disconnection_request(
 
 
 func _on_delete_nodes_request(nodes: Array[StringName]) -> void:
+	_delete_machine_ids(nodes)
+
+
+func _delete_machine_ids(nodes: Array[StringName]) -> int:
 	if factory == null:
-		return
+		return 0
 
+	var deleted_count := 0
 	for node_name: StringName in nodes:
-		factory.remove_machine(str(node_name))
+		if factory.remove_machine(str(node_name)):
+			deleted_count += 1
 
-	machine_selected.emit(null)
+	if deleted_count > 0:
+		machine_selected.emit(null)
+		machines_deleted.emit(deleted_count)
+		_request_selection_notification()
+
+	return deleted_count
+
+
+func _get_selected_machine_ids() -> Array[StringName]:
+	var result: Array[StringName] = []
+
+	for child: Node in get_children():
+		var graph_node := child as GraphNode
+
+		if graph_node != null and graph_node.selected:
+			result.append(graph_node.name)
+
+	return result
 
 
 func _on_machine_removed(machine_id: String) -> void:
@@ -516,6 +551,24 @@ func _on_connection_removed(_connection: ConnectionModel) -> void:
 
 func _on_graph_node_selected(machine: MachineModel) -> void:
 	machine_selected.emit(machine)
+	_request_selection_notification()
+
+
+func _on_graph_node_deselected() -> void:
+	_request_selection_notification()
+
+
+func _request_selection_notification() -> void:
+	if selection_notification_pending:
+		return
+
+	selection_notification_pending = true
+	call_deferred("_emit_selection_changed")
+
+
+func _emit_selection_changed() -> void:
+	selection_notification_pending = false
+	selection_changed.emit(_get_selected_machine_ids().size())
 
 
 func _on_node_position_changed(
