@@ -8,6 +8,7 @@ signal machines_deleted(deleted_count: int)
 
 var factory: FactoryModel
 var refresh_manager: RefreshManager
+var history: EditorHistory
 var input_ports: Dictionary = {}
 var output_ports: Dictionary = {}
 var input_port_resources: Dictionary = {}
@@ -16,17 +17,24 @@ var state_labels: Dictionary = {}
 var resource_labels: Dictionary = {}
 var dirty_machines: Dictionary = {}
 var selection_notification_pending := false
+var move_start_positions: Dictionary = {}
 
 
 func _ready() -> void:
 	connection_request.connect(_on_connection_request)
 	disconnection_request.connect(_on_disconnection_request)
 	delete_nodes_request.connect(_on_delete_nodes_request)
+	begin_node_move.connect(_on_begin_node_move)
+	end_node_move.connect(_on_end_node_move)
 	right_disconnects = true
 
 
 func bind_refresh_manager(manager: RefreshManager) -> void:
 	refresh_manager = manager
+
+
+func bind_history(new_history: EditorHistory) -> void:
+	history = new_history
 
 
 func bind_factory(new_factory: FactoryModel) -> void:
@@ -64,7 +72,11 @@ func request_machine(definition_id: String) -> void:
 	var machine := factory.create_machine(definition_id, position)
 
 	if machine != null:
-		factory.add_machine(machine)
+		_execute_history_action(
+			"add %s" % machine.display_name,
+			_add_existing_machine.bind(machine),
+			_remove_machine.bind(machine.instance_id)
+		)
 
 
 func delete_selected_machines() -> int:
@@ -382,13 +394,16 @@ func _on_connection_request(
 	if from_machine == null or to_machine == null:
 		return
 
-	factory.add_connection(
-		ConnectionModel.new(
-			from_machine,
-			to_machine,
-			output_resource,
-			1.0
-		)
+	var connection := ConnectionModel.new(
+		from_machine,
+		to_machine,
+		output_resource,
+		1.0
+	)
+	_execute_history_action(
+		"connect %s" % _resource_display_name(output_resource),
+		_add_existing_connection.bind(connection),
+		_remove_existing_connection.bind(connection)
 	)
 
 
@@ -425,7 +440,13 @@ func _on_disconnection_request(
 	)
 
 	if connection != null:
-		factory.remove_connection(connection)
+		_execute_history_action(
+			"disconnect %s" % _resource_display_name(
+				output_resource
+			),
+			_remove_existing_connection.bind(connection),
+			_add_existing_connection.bind(connection)
+		)
 
 
 func _on_delete_nodes_request(nodes: Array[StringName]) -> void:
@@ -436,10 +457,30 @@ func _delete_machine_ids(nodes: Array[StringName]) -> int:
 	if factory == null:
 		return 0
 
-	var deleted_count := 0
+	var machines: Array[MachineModel] = []
+
 	for node_name: StringName in nodes:
-		if factory.remove_machine(str(node_name)):
-			deleted_count += 1
+		var machine := factory.get_machine(str(node_name))
+
+		if machine != null:
+			machines.append(machine)
+
+	if machines.is_empty():
+		return 0
+
+	var connections := _get_related_connections(machines)
+	var label := (
+		"delete machine"
+		if machines.size() == 1
+		else "delete %d machines" % machines.size()
+	)
+	_execute_history_action(
+		label,
+		_remove_machine_group.bind(machines),
+		_restore_machine_group.bind(machines, connections)
+	)
+
+	var deleted_count := machines.size()
 
 	if deleted_count > 0:
 		machine_selected.emit(null)
@@ -447,6 +488,69 @@ func _delete_machine_ids(nodes: Array[StringName]) -> int:
 		_request_selection_notification()
 
 	return deleted_count
+
+
+func _get_related_connections(
+	machines: Array[MachineModel]
+) -> Array[ConnectionModel]:
+	var result: Array[ConnectionModel] = []
+	var machine_ids: Array[String] = []
+
+	for machine: MachineModel in machines:
+		machine_ids.append(machine.instance_id)
+
+	for connection: ConnectionModel in factory.connections:
+		if (
+			machine_ids.has(connection.from_machine.instance_id)
+			or machine_ids.has(connection.to_machine.instance_id)
+		):
+			result.append(connection)
+
+	return result
+
+
+func _remove_machine_group(machines: Array[MachineModel]) -> void:
+	for machine: MachineModel in machines:
+		factory.remove_machine(machine.instance_id)
+
+
+func _restore_machine_group(
+	machines: Array[MachineModel],
+	connections: Array[ConnectionModel]
+) -> void:
+	for machine: MachineModel in machines:
+		factory.add_machine(machine)
+
+	for connection: ConnectionModel in connections:
+		factory.add_connection(connection)
+
+
+func _add_existing_machine(machine: MachineModel) -> void:
+	factory.add_machine(machine)
+
+
+func _remove_machine(machine_id: String) -> void:
+	factory.remove_machine(machine_id)
+
+
+func _add_existing_connection(connection: ConnectionModel) -> void:
+	factory.add_connection(connection)
+
+
+func _remove_existing_connection(connection: ConnectionModel) -> void:
+	factory.remove_connection(connection)
+
+
+func _execute_history_action(
+	label: String,
+	do_action: Callable,
+	undo_action: Callable
+) -> void:
+	if history == null:
+		do_action.call()
+		return
+
+	history.execute(label, do_action, undo_action)
 
 
 func _get_selected_machine_ids() -> Array[StringName]:
@@ -477,6 +581,7 @@ func _on_machine_removed(machine_id: String) -> void:
 	state_labels.erase(machine_id)
 
 	_rebuild_connections()
+	_request_selection_notification()
 
 
 func _remove_machine_port_data(
@@ -576,6 +681,64 @@ func _on_node_position_changed(
 	machine: MachineModel
 ) -> void:
 	machine.set_graph_position(node.position_offset)
+
+
+func _on_begin_node_move() -> void:
+	move_start_positions.clear()
+
+	for node_name: StringName in _get_selected_machine_ids():
+		var machine := factory.get_machine(str(node_name))
+
+		if machine != null:
+			move_start_positions[machine.instance_id] = (
+				machine.graph_position
+			)
+
+
+func _on_end_node_move() -> void:
+	if move_start_positions.is_empty():
+		return
+
+	var end_positions: Dictionary = {}
+
+	for machine_id: Variant in move_start_positions.keys():
+		var machine := factory.get_machine(str(machine_id))
+
+		if machine != null:
+			end_positions[str(machine_id)] = machine.graph_position
+
+	if end_positions == move_start_positions:
+		move_start_positions.clear()
+		return
+
+	var start_positions := move_start_positions.duplicate()
+	move_start_positions.clear()
+
+	if history != null:
+		history.record_completed(
+			"move machines",
+			_apply_machine_positions.bind(end_positions),
+			_apply_machine_positions.bind(start_positions)
+		)
+
+
+func _apply_machine_positions(positions: Dictionary) -> void:
+	for machine_id: Variant in positions.keys():
+		var machine := factory.get_machine(str(machine_id))
+		var graph_node := get_node_or_null(
+			NodePath(str(machine_id))
+		) as GraphNode
+		var position: Vector2 = positions[machine_id]
+
+		if machine != null:
+			machine.set_graph_position(position)
+
+		if graph_node != null:
+			graph_node.position_offset = position
+
+
+func _resource_display_name(resource_id: String) -> String:
+	return resource_id.replace("_", " ").capitalize()
 
 
 func _state_text(state: MachineModel.State) -> String:

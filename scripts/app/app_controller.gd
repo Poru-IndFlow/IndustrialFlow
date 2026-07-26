@@ -25,6 +25,10 @@ extends Node
 	"../RefreshManager"
 ) as RefreshManager
 
+@onready var editor_history := get_node(
+	"../EditorHistory"
+) as EditorHistory
+
 var event_bus: EventBus
 var factory: FactoryModel
 var clock: SimulationClock
@@ -33,10 +37,19 @@ var clock: SimulationClock
 func _ready() -> void:
 	theme_manager.apply_to(get_parent() as Control)
 	factory_graph.bind_refresh_manager(refresh_manager)
+	factory_graph.bind_history(editor_history)
 	machine_inspector.bind_refresh_manager(refresh_manager)
 
+	editor_toolbar.undo_requested.connect(editor_history.undo)
+	editor_toolbar.redo_requested.connect(editor_history.redo)
 	editor_toolbar.delete_requested.connect(
 		_on_delete_requested
+	)
+	editor_history.history_changed.connect(
+		_on_history_changed
+	)
+	editor_history.action_completed.connect(
+		_on_history_action_completed
 	)
 
 	machine_palette.machine_requested.connect(
@@ -60,12 +73,16 @@ func _ready() -> void:
 	clock.name = "SimulationClock"
 	add_child(clock)
 	clock.tick_advanced.connect(_on_tick_advanced)
+	editor_history.clear()
 
 
 func set_factory(new_factory: FactoryModel) -> void:
 	factory = new_factory
 	factory_graph.bind_factory(factory)
 	machine_inspector.bind_factory(factory)
+
+	if editor_history != null:
+		editor_history.clear()
 
 
 func _on_tick_advanced(delta_seconds: float) -> void:
@@ -95,5 +112,26 @@ func _on_machines_deleted(deleted_count: int) -> void:
 	var noun := "machine" if deleted_count == 1 else "machines"
 	editor_toolbar.show_status(
 		"Deleted %d %s" % [deleted_count, noun],
+		ThemeManager.COLOR_SUCCESS
+	)
+
+
+func _on_history_changed(
+	can_undo: bool,
+	can_redo: bool,
+	undo_label: String,
+	redo_label: String
+) -> void:
+	editor_toolbar.set_history_state(
+		can_undo,
+		can_redo,
+		undo_label,
+		redo_label
+	)
+
+
+func _on_history_action_completed(label: String) -> void:
+	editor_toolbar.show_status(
+		label.capitalize(),
 		ThemeManager.COLOR_SUCCESS
 	)

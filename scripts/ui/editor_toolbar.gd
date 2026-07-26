@@ -88,6 +88,27 @@ func set_command_availability(
 	redo_button.disabled = not can_redo
 
 
+func set_history_state(
+	can_undo: bool,
+	can_redo: bool,
+	undo_label: String,
+	redo_label: String
+) -> void:
+	undo_button.disabled = not can_undo
+	redo_button.disabled = not can_redo
+
+	undo_button.text = "Undo"
+	redo_button.text = "Redo"
+	undo_button.tooltip_text = "Nothing to undo"
+	redo_button.tooltip_text = "Nothing to redo"
+
+	if can_undo:
+		undo_button.tooltip_text = "Undo %s (Ctrl+Z)" % undo_label
+
+	if can_redo:
+		redo_button.tooltip_text = "Redo %s (Ctrl+Y)" % redo_label
+
+
 func set_selection_count(count: int) -> void:
 	delete_button.disabled = count <= 0
 
