@@ -19,3 +19,5 @@ exports/
 # Windows
 Thumbs.db
 Desktop.ini
+# Local IDE workspace files
+*.code-workspace
