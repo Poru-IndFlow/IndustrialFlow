@@ -2,7 +2,7 @@ extends Node
 
 
 @onready var factory_graph := get_node(
-	"../RootVBox/Workspace/FactoryGraph"
+	"../RootVBox/Workspace/EditorSplit/FactoryGraph"
 )
 
 @onready var machine_palette := get_node(
@@ -10,8 +10,16 @@ extends Node
 )
 
 @onready var machine_inspector := get_node(
-	"../RootVBox/Workspace/MachineInspector"
+	"../RootVBox/Workspace/EditorSplit/MachineInspector"
 )
+
+@onready var theme_manager := get_node(
+	"../ThemeManager"
+) as ThemeManager
+
+@onready var refresh_manager := get_node(
+	"../RefreshManager"
+) as RefreshManager
 
 var event_bus: EventBus
 var factory: FactoryModel
@@ -19,6 +27,10 @@ var clock: SimulationClock
 
 
 func _ready() -> void:
+	theme_manager.apply_to(get_parent() as Control)
+	factory_graph.bind_refresh_manager(refresh_manager)
+	machine_inspector.bind_refresh_manager(refresh_manager)
+
 	machine_palette.machine_requested.connect(
 	_on_machine_requested
 )

@@ -1,20 +1,15 @@
-extends PanelContainer
+extends DockPanel
 
 
 signal machine_requested(definition_id: String)
 
 
 func _ready() -> void:
+	dock_title = "Machines"
+	super._ready()
+
 	var root := VBoxContainer.new()
-	add_child(root)
-
-	var title := Label.new()
-	title.text = "Machines"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	root.add_child(title)
-
-	var separator := HSeparator.new()
-	root.add_child(separator)
+	get_content_root().add_child(root)
 
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -35,22 +30,21 @@ func _ready() -> void:
 		if category != current_category:
 			current_category = category
 
-			var category_label := Label.new()
-			category_label.text = category.capitalize()
+			var category_label := UIWidgets.create_section_header(
+				category.capitalize()
+			)
 			machine_list.add_child(category_label)
 
 		var definition_id := str(definition.get("id", ""))
-		var button := Button.new()
-		button.text = str(
-			definition.get(
-				"display_name",
-				definition_id.capitalize()
-			)
+		var button := UIWidgets.create_action_button(
+			str(
+				definition.get(
+					"display_name",
+					definition_id.capitalize()
+				)
+			),
+			str(definition.get("description", ""))
 		)
-		button.tooltip_text = str(
-			definition.get("description", "")
-		)
-		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.pressed.connect(
 			_on_machine_button_pressed.bind(definition_id)
 		)

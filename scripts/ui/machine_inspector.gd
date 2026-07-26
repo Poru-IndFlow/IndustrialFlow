@@ -1,29 +1,30 @@
-extends PanelContainer
+extends DockPanel
 
 
 var factory: FactoryModel
 var selected_machine: MachineModel
+var refresh_manager: RefreshManager
 
 var name_label: Label
 var id_label: Label
-var state_label: Label
+var state_badge: Label
 var input_list: VBoxContainer
 var output_list: VBoxContainer
 var inventory_list: VBoxContainer
 
 
 func _ready() -> void:
+	dock_title = "Machine Inspector"
+	super._ready()
+
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	get_content_root().add_child(scroll)
+
 	var root := VBoxContainer.new()
 	root.add_theme_constant_override("separation", 8)
-	add_child(root)
-
-	var title := Label.new()
-	title.text = "Machine Inspector"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 18)
-	root.add_child(title)
-
-	root.add_child(HSeparator.new())
+	root.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(root)
 
 	name_label = Label.new()
 	name_label.text = "No machine selected"
@@ -33,14 +34,15 @@ func _ready() -> void:
 	id_label = Label.new()
 	root.add_child(id_label)
 
-	state_label = Label.new()
-	root.add_child(state_label)
+	state_badge = UIWidgets.create_status_badge(
+		"No selection",
+		ThemeManager.COLOR_TEXT_MUTED
+	)
+	root.add_child(state_badge)
 
 	root.add_child(HSeparator.new())
 
-	var input_title := Label.new()
-	input_title.text = "Inputs"
-	input_title.add_theme_font_size_override("font_size", 15)
+	var input_title := UIWidgets.create_section_header("Inputs")
 	root.add_child(input_title)
 
 	input_list = VBoxContainer.new()
@@ -48,9 +50,7 @@ func _ready() -> void:
 
 	root.add_child(HSeparator.new())
 
-	var output_title := Label.new()
-	output_title.text = "Outputs"
-	output_title.add_theme_font_size_override("font_size", 15)
+	var output_title := UIWidgets.create_section_header("Outputs")
 	root.add_child(output_title)
 
 	output_list = VBoxContainer.new()
@@ -58,13 +58,15 @@ func _ready() -> void:
 
 	root.add_child(HSeparator.new())
 
-	var inventory_title := Label.new()
-	inventory_title.text = "Inventory"
-	inventory_title.add_theme_font_size_override("font_size", 15)
+	var inventory_title := UIWidgets.create_section_header("Inventory")
 	root.add_child(inventory_title)
 
 	inventory_list = VBoxContainer.new()
 	root.add_child(inventory_list)
+
+
+func bind_refresh_manager(manager: RefreshManager) -> void:
+	refresh_manager = manager
 
 
 func bind_factory(new_factory: FactoryModel) -> void:
@@ -73,7 +75,7 @@ func bind_factory(new_factory: FactoryModel) -> void:
 
 	factory = new_factory
 	selected_machine = null
-	_refresh()
+	_request_refresh()
 
 	if factory == null:
 		return
@@ -91,7 +93,7 @@ func bind_factory(new_factory: FactoryModel) -> void:
 
 func show_machine(machine: MachineModel) -> void:
 	selected_machine = machine
-	_refresh()
+	_request_refresh()
 
 
 func _disconnect_factory_signals() -> void:
@@ -132,7 +134,7 @@ func _disconnect_factory_signals() -> void:
 
 func _on_machine_changed(machine: MachineModel) -> void:
 	if machine == selected_machine:
-		_refresh()
+		_request_refresh()
 
 
 func _on_machine_removed(machine_id: String) -> void:
@@ -141,18 +143,33 @@ func _on_machine_removed(machine_id: String) -> void:
 		and selected_machine.instance_id == machine_id
 	):
 		selected_machine = null
+		_request_refresh()
+
+
+func _request_refresh() -> void:
+	if refresh_manager == null:
 		_refresh()
+		return
+
+	refresh_manager.request_refresh(
+		&"machine_inspector",
+		_refresh
+	)
 
 
 func _refresh() -> void:
-	_clear_container(input_list)
-	_clear_container(output_list)
-	_clear_container(inventory_list)
+	UIWidgets.clear_container(input_list)
+	UIWidgets.clear_container(output_list)
+	UIWidgets.clear_container(inventory_list)
 
 	if selected_machine == null:
 		name_label.text = "No machine selected"
 		id_label.text = ""
-		state_label.text = ""
+		UIWidgets.update_status_badge(
+			state_badge,
+			"No selection",
+			ThemeManager.COLOR_TEXT_MUTED
+		)
 
 		_add_empty_label(input_list)
 		_add_empty_label(output_list)
@@ -161,8 +178,10 @@ func _refresh() -> void:
 
 	name_label.text = selected_machine.display_name
 	id_label.text = "ID: %s" % selected_machine.instance_id
-	state_label.text = "State: %s" % _state_text(
-		selected_machine.state
+	UIWidgets.update_status_badge(
+		state_badge,
+		_state_text(selected_machine.state),
+		_state_color(selected_machine.state)
 	)
 
 	_populate_resource_section(
@@ -218,37 +237,15 @@ func _populate_inventory() -> void:
 			resource_id
 		)
 
-		var row := HBoxContainer.new()
+		var row := UIWidgets.create_labeled_value(
+			_resource_display_name(resource_id),
+			"%.1f / %.1f" % [amount, capacity]
+		)
 		inventory_list.add_child(row)
-
-		var resource_label := Label.new()
-		resource_label.text = _resource_display_name(resource_id)
-		resource_label.size_flags_horizontal = (
-			Control.SIZE_EXPAND_FILL
-		)
-		row.add_child(resource_label)
-
-		var quantity_label := Label.new()
-		quantity_label.text = "%.1f / %.1f" % [
-			amount,
-			capacity
-		]
-		quantity_label.horizontal_alignment = (
-			HORIZONTAL_ALIGNMENT_RIGHT
-		)
-		row.add_child(quantity_label)
-
-
-func _clear_container(container: VBoxContainer) -> void:
-	for child: Node in container.get_children():
-		child.queue_free()
 
 
 func _add_empty_label(container: VBoxContainer) -> void:
-	var empty_label := Label.new()
-	empty_label.text = "None"
-	empty_label.modulate = Color(0.65, 0.65, 0.65)
-	container.add_child(empty_label)
+	container.add_child(UIWidgets.create_empty_label())
 
 
 func _resource_display_name(resource_id: String) -> String:
@@ -260,3 +257,17 @@ func _state_text(state: MachineModel.State) -> String:
 		MachineModel.State.keys()[state]
 		as String
 	).capitalize()
+
+
+func _state_color(state: MachineModel.State) -> Color:
+	match state:
+		MachineModel.State.RUNNING:
+			return ThemeManager.COLOR_SUCCESS
+		MachineModel.State.BLOCKED_INPUT:
+			return ThemeManager.COLOR_WARNING
+		MachineModel.State.BLOCKED_OUTPUT:
+			return ThemeManager.COLOR_WARNING
+		MachineModel.State.DISABLED:
+			return ThemeManager.COLOR_DANGER
+		_:
+			return ThemeManager.COLOR_ACCENT

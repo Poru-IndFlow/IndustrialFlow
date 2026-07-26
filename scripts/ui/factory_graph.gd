@@ -5,12 +5,14 @@ signal machine_selected(machine: MachineModel)
 
 
 var factory: FactoryModel
+var refresh_manager: RefreshManager
 var input_ports: Dictionary = {}
 var output_ports: Dictionary = {}
 var input_port_resources: Dictionary = {}
 var output_port_resources: Dictionary = {}
 var state_labels: Dictionary = {}
 var resource_labels: Dictionary = {}
+var dirty_machines: Dictionary = {}
 
 
 func _ready() -> void:
@@ -18,6 +20,10 @@ func _ready() -> void:
 	disconnection_request.connect(_on_disconnection_request)
 	delete_nodes_request.connect(_on_delete_nodes_request)
 	right_disconnects = true
+
+
+func bind_refresh_manager(manager: RefreshManager) -> void:
+	refresh_manager = manager
 
 
 func bind_factory(new_factory: FactoryModel) -> void:
@@ -66,6 +72,7 @@ func clear_graph() -> void:
 	output_port_resources.clear()
 	state_labels.clear()
 	resource_labels.clear()
+	dirty_machines.clear()
 
 	for child: Node in get_children():
 		if child is GraphNode:
@@ -452,16 +459,46 @@ func _on_machine_state_changed(machine: MachineModel) -> void:
 	if machine == null:
 		return
 
-	var state_label := state_labels.get(
-		machine.instance_id
-	) as Label
-
-	if state_label != null:
-		state_label.text = "State: %s" % _state_text(machine.state)
+	_request_machine_refresh(machine)
 
 
 func _on_machine_inventory_changed(machine: MachineModel) -> void:
 	if machine != null:
+		_request_machine_refresh(machine)
+
+
+func _request_machine_refresh(machine: MachineModel) -> void:
+	dirty_machines[machine.instance_id] = machine
+
+	if refresh_manager == null:
+		_flush_machine_refreshes()
+		return
+
+	refresh_manager.request_refresh(
+		&"factory_graph_machines",
+		_flush_machine_refreshes
+	)
+
+
+func _flush_machine_refreshes() -> void:
+	var machines_to_refresh := dirty_machines.values()
+	dirty_machines.clear()
+
+	for value: Variant in machines_to_refresh:
+		var machine := value as MachineModel
+
+		if machine == null:
+			continue
+
+		var state_label := state_labels.get(
+			machine.instance_id
+		) as Label
+
+		if state_label != null:
+			state_label.text = "State: %s" % _state_text(
+				machine.state
+			)
+
 		_update_machine_inventory(machine)
 
 
