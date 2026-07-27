@@ -110,6 +110,24 @@ size_flags_horizontal = 3
 [node name="InventorySeparator" type="HSeparator" parent="Margin/Content"]
 layout_mode = 2
 
+[node name="ThroughputTitle" type="Label" parent="Margin/Content"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 15
+text = "Material Throughput"
+
+[node name="ThroughputHelp" type="Label" parent="Margin/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.603922, 0.65098, 0.721569, 1)
+text = "Current measured transfer rate across plant connections."
+
+[node name="ThroughputList" type="VBoxContainer" parent="Margin/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="InventorySeparator2" type="HSeparator" parent="Margin/Content"]
+layout_mode = 2
+
 [node name="InventoryTitle" type="Label" parent="Margin/Content"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 15

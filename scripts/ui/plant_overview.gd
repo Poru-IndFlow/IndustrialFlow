@@ -12,6 +12,7 @@ const ALERT_ROW_SCENE := preload(
 var factory: FactoryModel
 var refresh_manager: RefreshManager
 var alert_signature := ""
+var throughput_signature := ""
 
 @onready var status_banner := %StatusBanner as StatusBanner
 @onready var total_card := %TotalCard as KpiCard
@@ -22,6 +23,7 @@ var alert_signature := ""
 @onready var connections_card := %ConnectionsCard as KpiCard
 @onready var alert_count_label := %AlertCountLabel as Label
 @onready var alerts_list := %AlertsList as VBoxContainer
+@onready var throughput_list := %ThroughputList as VBoxContainer
 @onready var inventory_list := %InventoryList as VBoxContainer
 
 
@@ -44,6 +46,7 @@ func bind_factory(new_factory: FactoryModel) -> void:
 	_disconnect_factory_events()
 	factory = new_factory
 	alert_signature = ""
+	throughput_signature = ""
 	_connect_factory_events()
 	_request_refresh()
 
@@ -58,6 +61,7 @@ func _connect_factory_events() -> void:
 		factory.event_bus.machine_removed,
 		factory.event_bus.connection_added,
 		factory.event_bus.connection_removed,
+		factory.event_bus.connection_flow_changed,
 		factory.event_bus.machine_state_changed,
 		factory.event_bus.machine_inventory_changed
 	]
@@ -77,6 +81,7 @@ func _disconnect_factory_events() -> void:
 		factory.event_bus.machine_removed,
 		factory.event_bus.connection_added,
 		factory.event_bus.connection_removed,
+		factory.event_bus.connection_flow_changed,
 		factory.event_bus.machine_state_changed,
 		factory.event_bus.machine_inventory_changed
 	]
@@ -149,6 +154,7 @@ func _refresh() -> void:
 
 	_update_status(total, running, blocked, disabled)
 	_update_alerts()
+	_update_throughput()
 	_update_inventory(inventory_totals)
 
 
@@ -223,6 +229,87 @@ func _format_amount(amount: float) -> String:
 		return str(int(roundf(amount)))
 
 	return "%.2f" % amount
+
+
+func _update_throughput() -> void:
+	if factory == null or factory.connections.is_empty():
+		if throughput_signature == "none":
+			return
+
+		throughput_signature = "none"
+		UIWidgets.clear_container(throughput_list)
+		throughput_list.add_child(
+			UIWidgets.create_empty_label(
+				"No material connections available."
+			)
+		)
+		return
+
+	var resource_rates: Dictionary = {}
+	var resource_line_counts: Dictionary = {}
+	var active_line_counts: Dictionary = {}
+
+	for connection: ConnectionModel in factory.connections:
+		var resource_id := connection.resource_id
+		resource_rates[resource_id] = (
+			float(resource_rates.get(resource_id, 0.0))
+			+ connection.current_rate_per_second
+		)
+		resource_line_counts[resource_id] = (
+			int(resource_line_counts.get(resource_id, 0)) + 1
+		)
+
+		if connection.current_rate_per_second > 0.0:
+			active_line_counts[resource_id] = (
+				int(active_line_counts.get(resource_id, 0)) + 1
+			)
+
+	var resource_ids: Array[String] = []
+
+	for key: Variant in resource_rates.keys():
+		resource_ids.append(str(key))
+
+	resource_ids.sort()
+	var signature_parts: PackedStringArray = []
+
+	for resource_id: String in resource_ids:
+		signature_parts.append(
+			"%s:%.6f:%d:%d" % [
+				resource_id,
+				float(resource_rates.get(resource_id, 0.0)),
+				int(active_line_counts.get(resource_id, 0)),
+				int(resource_line_counts.get(resource_id, 0))
+			]
+		)
+
+	var new_signature := "|".join(signature_parts)
+
+	if new_signature == throughput_signature:
+		return
+
+	throughput_signature = new_signature
+	UIWidgets.clear_container(throughput_list)
+
+	for resource_id: String in resource_ids:
+		var rate := float(resource_rates.get(resource_id, 0.0))
+		var active_lines := int(
+			active_line_counts.get(resource_id, 0)
+		)
+		var total_lines := int(
+			resource_line_counts.get(resource_id, 0)
+		)
+		var unit := ResourceRegistry.get_unit(resource_id)
+		throughput_list.add_child(
+			UIWidgets.create_labeled_value(
+				ResourceRegistry.get_display_name(resource_id),
+				"%.2f %s/s · %d/%d lines active" % [
+					rate,
+					unit,
+					active_lines,
+					total_lines
+				]
+			)
+		)
 
 
 func _update_alerts() -> void:
