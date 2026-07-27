@@ -14,6 +14,7 @@ var refresh_manager: RefreshManager
 var alert_signature := ""
 var throughput_signature := ""
 
+@onready var build_label := %BuildLabel as Label
 @onready var status_banner := %StatusBanner as StatusBanner
 @onready var total_card := %TotalCard as KpiCard
 @onready var running_card := %RunningCard as KpiCard
@@ -28,6 +29,7 @@ var throughput_signature := ""
 
 
 func _ready() -> void:
+	build_label.text = BuildInfo.get_display_string()
 	total_card.set_accent(ThemeManager.COLOR_ACCENT)
 	running_card.set_accent(ThemeManager.COLOR_SUCCESS)
 	idle_card.set_accent(ThemeManager.COLOR_TEXT_MUTED)
