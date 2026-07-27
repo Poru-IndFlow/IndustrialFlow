@@ -16,7 +16,7 @@ static func evaluate(formula: String, variables: Dictionary) -> float:
 		])
 		return 0.0
 
-	var result := expression.execute(values, null, false, true)
+	var result: Variant = expression.execute(values, null, false, true)
 	if expression.has_execute_failed():
 		push_error("Formula execution failed: %s" % formula)
 		return 0.0

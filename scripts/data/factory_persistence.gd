@@ -1,0 +1,259 @@
+class_name FactoryPersistence
+extends RefCounted
+
+
+const FORMAT_NAME := "IndustrialFlow Factory"
+const FORMAT_VERSION := 1
+
+
+static func save_factory(
+	path: String,
+	factory: FactoryModel
+) -> Error:
+	if factory == null:
+		return ERR_INVALID_PARAMETER
+
+	var file: FileAccess = FileAccess.open(path, FileAccess.WRITE)
+
+	if file == null:
+		return FileAccess.get_open_error()
+
+	var data: Dictionary = {
+		"format": FORMAT_NAME,
+		"version": FORMAT_VERSION,
+		"machines": _serialize_machines(factory),
+		"connections": _serialize_connections(factory)
+	}
+	file.store_string(JSON.stringify(data, "\t"))
+	file.close()
+	return OK
+
+
+static func load_factory(
+	path: String,
+	event_bus: EventBus
+) -> Dictionary:
+	var file: FileAccess = FileAccess.open(path, FileAccess.READ)
+
+	if file == null:
+		return _load_error(
+			FileAccess.get_open_error(),
+			"Could not open the selected project."
+		)
+
+	var json_text := file.get_as_text()
+	file.close()
+
+	var json := JSON.new()
+	var parse_error: Error = json.parse(json_text)
+
+	if parse_error != OK:
+		return _load_error(
+			parse_error,
+			"Invalid project JSON at line %d: %s" % [
+				json.get_error_line(),
+				json.get_error_message()
+			]
+		)
+
+	if not json.data is Dictionary:
+		return _load_error(
+			ERR_FILE_CORRUPT,
+			"The project root must be a JSON object."
+		)
+
+	var data := json.data as Dictionary
+
+	if str(data.get("format", "")) != FORMAT_NAME:
+		return _load_error(
+			ERR_FILE_UNRECOGNIZED,
+			"This is not an IndustrialFlow project file."
+		)
+
+	var version := int(data.get("version", 0))
+
+	if version != FORMAT_VERSION:
+		return _load_error(
+			ERR_FILE_UNRECOGNIZED,
+			"Unsupported project version: %d." % version
+		)
+
+	return _deserialize_factory(data, event_bus)
+
+
+static func _serialize_machines(factory: FactoryModel) -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	var machine_ids: Array = factory.machines.keys()
+	machine_ids.sort()
+
+	for value: Variant in machine_ids:
+		var machine := factory.get_machine(str(value))
+
+		if machine == null:
+			continue
+
+		result.append({
+			"instance_id": machine.instance_id,
+			"definition_id": machine.definition_id,
+			"position": {
+				"x": machine.graph_position.x,
+				"y": machine.graph_position.y
+			},
+			"enabled": machine.enabled,
+			"state": int(machine.state),
+			"cycle_progress": machine.cycle_progress,
+			"inventory": machine.inventory.amounts.duplicate(true)
+		})
+
+	return result
+
+
+static func _serialize_connections(
+	factory: FactoryModel
+) -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+
+	for connection: ConnectionModel in factory.connections:
+		result.append({
+			"from": connection.from_machine.instance_id,
+			"to": connection.to_machine.instance_id,
+			"resource": connection.resource_id,
+			"capacity_per_second": connection.capacity_per_second,
+			"enabled": connection.enabled
+		})
+
+	return result
+
+
+static func _deserialize_factory(
+	data: Dictionary,
+	event_bus: EventBus
+) -> Dictionary:
+	if event_bus == null:
+		return _load_error(
+			ERR_INVALID_PARAMETER,
+			"No event bus is available for the loaded factory."
+		)
+
+	var factory := FactoryModel.new(event_bus)
+	var machine_entries: Array = data.get("machines", [])
+
+	for value: Variant in machine_entries:
+		if not value is Dictionary:
+			return _load_error(
+				ERR_FILE_CORRUPT,
+				"A machine entry is invalid."
+			)
+
+		var entry := value as Dictionary
+		var definition_id := str(entry.get("definition_id", ""))
+		var instance_id := str(entry.get("instance_id", ""))
+		var definition := MachineRegistry.get_definition(definition_id)
+
+		if definition.is_empty() or instance_id.is_empty():
+			return _load_error(
+				ERR_FILE_CORRUPT,
+				"Unknown or invalid machine: %s." % definition_id
+			)
+
+		var position_data: Dictionary = entry.get("position", {})
+		var position := Vector2(
+			float(position_data.get("x", 0.0)),
+			float(position_data.get("y", 0.0))
+		)
+		var machine := MachineModel.create(
+			definition,
+			instance_id,
+			event_bus,
+			position
+		)
+		machine.enabled = bool(entry.get("enabled", true))
+		machine.state = int(
+			entry.get("state", MachineModel.State.IDLE)
+		)
+		machine.cycle_progress = float(
+			entry.get("cycle_progress", 0.0)
+		)
+		_restore_inventory(
+			machine,
+			entry.get("inventory", {}) as Dictionary
+		)
+
+		if not factory.add_machine(machine):
+			return _load_error(
+				ERR_FILE_CORRUPT,
+				"Duplicate machine ID: %s." % instance_id
+			)
+
+	var connection_entries: Array = data.get("connections", [])
+
+	for value: Variant in connection_entries:
+		if not value is Dictionary:
+			return _load_error(
+				ERR_FILE_CORRUPT,
+				"A connection entry is invalid."
+			)
+
+		var entry := value as Dictionary
+		var from_machine := factory.get_machine(
+			str(entry.get("from", ""))
+		)
+		var to_machine := factory.get_machine(
+			str(entry.get("to", ""))
+		)
+		var resource_id := str(entry.get("resource", ""))
+
+		if (
+			from_machine == null
+			or to_machine == null
+			or resource_id.is_empty()
+		):
+			return _load_error(
+				ERR_FILE_CORRUPT,
+				"A connection references missing data."
+			)
+
+		var connection := ConnectionModel.new(
+			from_machine,
+			to_machine,
+			resource_id,
+			float(entry.get("capacity_per_second", 1.0))
+		)
+		connection.enabled = bool(entry.get("enabled", true))
+
+		if not factory.add_connection(connection):
+			return _load_error(
+				ERR_FILE_CORRUPT,
+				"Duplicate connection in project file."
+			)
+
+	factory.rebuild_instance_counters()
+	return {
+		"error": OK,
+		"message": "",
+		"factory": factory
+	}
+
+
+static func _restore_inventory(
+	machine: MachineModel,
+	inventory_data: Dictionary
+) -> void:
+	for value: Variant in inventory_data.keys():
+		var resource_id := str(value)
+		var amount := maxf(
+			0.0,
+			float(inventory_data[value])
+		)
+		machine.inventory.amounts[resource_id] = minf(
+			amount,
+			machine.inventory.get_capacity(resource_id)
+		)
+
+
+static func _load_error(error: Error, message: String) -> Dictionary:
+	return {
+		"error": error,
+		"message": message,
+		"factory": null
+	}

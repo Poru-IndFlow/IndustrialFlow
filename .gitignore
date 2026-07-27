@@ -1,0 +1,23 @@
+# Godot generated files
+.godot/
+.import/
+
+# Exported builds
+build/
+dist/
+exports/
+
+# Temporary and backup files
+*.tmp
+*.bak
+*.autosave
+*~
+
+# VS Code local settings
+.vscode/
+
+# Windows
+Thumbs.db
+Desktop.ini
+# Local IDE workspace files
+*.code-workspace
