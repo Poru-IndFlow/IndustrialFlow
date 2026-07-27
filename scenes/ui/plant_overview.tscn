@@ -85,6 +85,31 @@ title_text = "Connections"
 [node name="Separator" type="HSeparator" parent="Margin/Content"]
 layout_mode = 2
 
+[node name="AlertsHeader" type="HBoxContainer" parent="Margin/Content"]
+layout_mode = 2
+
+[node name="AlertsTitle" type="Label" parent="Margin/Content/AlertsHeader"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 15
+text = "Operational Alerts"
+
+[node name="AlertCountLabel" type="Label" parent="Margin/Content/AlertsHeader"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(32, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.603922, 0.65098, 0.721569, 1)
+text = "0"
+horizontal_alignment = 2
+
+[node name="AlertsList" type="VBoxContainer" parent="Margin/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="InventorySeparator" type="HSeparator" parent="Margin/Content"]
+layout_mode = 2
+
 [node name="InventoryTitle" type="Label" parent="Margin/Content"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 15

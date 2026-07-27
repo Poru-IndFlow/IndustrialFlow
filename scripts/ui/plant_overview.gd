@@ -2,10 +2,16 @@ class_name PlantOverview
 extends ScrollContainer
 
 
+signal machine_requested(machine_id: String)
+
 const REFRESH_KEY := &"plant_overview"
+const ALERT_ROW_SCENE := preload(
+	"res://scenes/ui/machine_alert_row.tscn"
+)
 
 var factory: FactoryModel
 var refresh_manager: RefreshManager
+var alert_signature := ""
 
 @onready var status_banner := %StatusBanner as StatusBanner
 @onready var total_card := %TotalCard as KpiCard
@@ -14,6 +20,8 @@ var refresh_manager: RefreshManager
 @onready var blocked_card := %BlockedCard as KpiCard
 @onready var disabled_card := %DisabledCard as KpiCard
 @onready var connections_card := %ConnectionsCard as KpiCard
+@onready var alert_count_label := %AlertCountLabel as Label
+@onready var alerts_list := %AlertsList as VBoxContainer
 @onready var inventory_list := %InventoryList as VBoxContainer
 
 
@@ -35,6 +43,7 @@ func bind_refresh_manager(manager: RefreshManager) -> void:
 func bind_factory(new_factory: FactoryModel) -> void:
 	_disconnect_factory_events()
 	factory = new_factory
+	alert_signature = ""
 	_connect_factory_events()
 	_request_refresh()
 
@@ -139,6 +148,7 @@ func _refresh() -> void:
 	connections_card.set_value(str(connection_count))
 
 	_update_status(total, running, blocked, disabled)
+	_update_alerts()
 	_update_inventory(inventory_totals)
 
 
@@ -213,3 +223,112 @@ func _format_amount(amount: float) -> String:
 		return str(int(roundf(amount)))
 
 	return "%.2f" % amount
+
+
+func _update_alerts() -> void:
+	var alert_machines: Array[MachineModel] = []
+
+	if factory != null:
+		for value: Variant in factory.machines.values():
+			var machine := value as MachineModel
+
+			if machine != null and _is_alert_state(machine.state):
+				alert_machines.append(machine)
+
+	alert_machines.sort_custom(_sort_alert_machines)
+	var new_signature := _build_alert_signature(alert_machines)
+
+	if new_signature == alert_signature:
+		return
+
+	alert_signature = new_signature
+	UIWidgets.clear_container(alerts_list)
+	alert_count_label.text = str(alert_machines.size())
+
+	if alert_machines.is_empty():
+		alerts_list.add_child(
+			UIWidgets.create_empty_label(
+				"No operational alerts."
+			)
+		)
+		return
+
+	for machine: MachineModel in alert_machines:
+		var row := ALERT_ROW_SCENE.instantiate() as MachineAlertRow
+
+		if row == null:
+			continue
+
+		alerts_list.add_child(row)
+		row.configure(
+			machine,
+			_alert_detail(machine.state),
+			_alert_color(machine.state)
+		)
+		row.machine_requested.connect(_on_machine_requested)
+
+
+func _build_alert_signature(
+	machines: Array[MachineModel]
+) -> String:
+	if machines.is_empty():
+		return "none"
+
+	var parts: PackedStringArray = []
+
+	for machine: MachineModel in machines:
+		parts.append(
+			"%s:%d" % [machine.instance_id, machine.state]
+		)
+
+	return "|".join(parts)
+
+
+func _is_alert_state(state: MachineModel.State) -> bool:
+	return state in [
+		MachineModel.State.BLOCKED_INPUT,
+		MachineModel.State.BLOCKED_OUTPUT,
+		MachineModel.State.DISABLED
+	]
+
+
+func _sort_alert_machines(
+	left: MachineModel,
+	right: MachineModel
+) -> bool:
+	var left_priority := _alert_priority(left.state)
+	var right_priority := _alert_priority(right.state)
+
+	if left_priority == right_priority:
+		return left.display_name.naturalnocasecmp_to(
+			right.display_name
+		) < 0
+
+	return left_priority < right_priority
+
+
+func _alert_priority(state: MachineModel.State) -> int:
+	return 0 if state == MachineModel.State.DISABLED else 1
+
+
+func _alert_detail(state: MachineModel.State) -> String:
+	match state:
+		MachineModel.State.DISABLED:
+			return "Disabled"
+		MachineModel.State.BLOCKED_INPUT:
+			return "Blocked — waiting for input"
+		MachineModel.State.BLOCKED_OUTPUT:
+			return "Blocked — output has nowhere to go"
+		_:
+			return "Needs attention"
+
+
+func _alert_color(state: MachineModel.State) -> Color:
+	if state == MachineModel.State.DISABLED:
+		return ThemeManager.COLOR_DANGER
+
+	return ThemeManager.COLOR_WARNING
+
+
+func _on_machine_requested(machine_id: String) -> void:
+	machine_requested.emit(machine_id)
