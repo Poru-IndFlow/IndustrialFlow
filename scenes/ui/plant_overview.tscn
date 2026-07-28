@@ -124,7 +124,7 @@ text = "Material Throughput"
 [node name="ThroughputHelp" type="Label" parent="Margin/Content"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.603922, 0.65098, 0.721569, 1)
-text = "Current measured transfer rate across plant connections."
+text = "Measured flow compared with configured connection capacity."
 
 [node name="ThroughputList" type="VBoxContainer" parent="Margin/Content"]
 unique_name_in_owner = true

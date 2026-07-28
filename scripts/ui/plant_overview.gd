@@ -8,6 +8,9 @@ const REFRESH_KEY := &"plant_overview"
 const ALERT_ROW_SCENE := preload(
 	"res://scenes/ui/machine_alert_row.tscn"
 )
+const THROUGHPUT_ROW_SCENE := preload(
+	"res://scenes/ui/resource_throughput_row.tscn"
+)
 
 var factory: FactoryModel
 var refresh_manager: RefreshManager
@@ -248,14 +251,23 @@ func _update_throughput() -> void:
 		return
 
 	var resource_rates: Dictionary = {}
+	var resource_capacities: Dictionary = {}
 	var resource_line_counts: Dictionary = {}
 	var active_line_counts: Dictionary = {}
+	var saturated_line_counts: Dictionary = {}
 
 	for connection: ConnectionModel in factory.connections:
+		if not connection.enabled:
+			continue
+
 		var resource_id := connection.resource_id
 		resource_rates[resource_id] = (
 			float(resource_rates.get(resource_id, 0.0))
 			+ connection.current_rate_per_second
+		)
+		resource_capacities[resource_id] = (
+			float(resource_capacities.get(resource_id, 0.0))
+			+ connection.capacity_per_second
 		)
 		resource_line_counts[resource_id] = (
 			int(resource_line_counts.get(resource_id, 0)) + 1
@@ -265,6 +277,28 @@ func _update_throughput() -> void:
 			active_line_counts[resource_id] = (
 				int(active_line_counts.get(resource_id, 0)) + 1
 			)
+
+		if (
+			connection.capacity_per_second > 0.0
+			and connection.current_rate_per_second
+			/ connection.capacity_per_second >= 0.95
+		):
+			saturated_line_counts[resource_id] = (
+				int(saturated_line_counts.get(resource_id, 0)) + 1
+			)
+
+	if resource_rates.is_empty():
+		if throughput_signature == "disabled":
+			return
+
+		throughput_signature = "disabled"
+		UIWidgets.clear_container(throughput_list)
+		throughput_list.add_child(
+			UIWidgets.create_empty_label(
+				"No enabled material connections available."
+			)
+		)
+		return
 
 	var resource_ids: Array[String] = []
 
@@ -276,11 +310,13 @@ func _update_throughput() -> void:
 
 	for resource_id: String in resource_ids:
 		signature_parts.append(
-			"%s:%.6f:%d:%d" % [
+			"%s:%.6f:%.6f:%d:%d:%d" % [
 				resource_id,
 				float(resource_rates.get(resource_id, 0.0)),
+				float(resource_capacities.get(resource_id, 0.0)),
 				int(active_line_counts.get(resource_id, 0)),
-				int(resource_line_counts.get(resource_id, 0))
+				int(resource_line_counts.get(resource_id, 0)),
+				int(saturated_line_counts.get(resource_id, 0))
 			]
 		)
 
@@ -294,24 +330,100 @@ func _update_throughput() -> void:
 
 	for resource_id: String in resource_ids:
 		var rate := float(resource_rates.get(resource_id, 0.0))
+		var capacity := float(
+			resource_capacities.get(resource_id, 0.0)
+		)
 		var active_lines := int(
 			active_line_counts.get(resource_id, 0)
 		)
 		var total_lines := int(
 			resource_line_counts.get(resource_id, 0)
 		)
+		var saturated_lines := int(
+			saturated_line_counts.get(resource_id, 0)
+		)
+		var utilization := (
+			rate / capacity
+			if capacity > 0.0
+			else 0.0
+		)
 		var unit := ResourceRegistry.get_unit(resource_id)
-		throughput_list.add_child(
-			UIWidgets.create_labeled_value(
-				ResourceRegistry.get_display_name(resource_id),
-				"%.2f %s/s · %d/%d lines active" % [
-					rate,
-					unit,
-					active_lines,
-					total_lines
-				]
+		var row := (
+			THROUGHPUT_ROW_SCENE.instantiate()
+			as ResourceThroughputRow
+		)
+
+		if row == null:
+			continue
+
+		throughput_list.add_child(row)
+		row.configure(
+			ResourceRegistry.get_display_name(resource_id),
+			"%.2f / %.2f %s/s · %.0f%% · %d/%d lines flowing" % [
+				rate,
+				capacity,
+				unit,
+				utilization * 100.0,
+				active_lines,
+				total_lines
+			],
+			_throughput_status_text(
+				active_lines,
+				total_lines,
+				saturated_lines,
+				utilization
+			),
+			_throughput_status_color(
+				active_lines,
+				total_lines,
+				saturated_lines,
+				utilization
 			)
 		)
+
+
+func _throughput_status_text(
+	active_lines: int,
+	total_lines: int,
+	saturated_lines: int,
+	utilization: float
+) -> String:
+	if active_lines == 0:
+		return "No flow"
+
+	if saturated_lines > 0:
+		return (
+			"At capacity"
+			if saturated_lines == total_lines
+			else "%d saturated" % saturated_lines
+		)
+
+	if active_lines < total_lines:
+		return "Partial flow"
+
+	if utilization >= 0.8:
+		return "High load"
+
+	return "Flowing"
+
+
+func _throughput_status_color(
+	active_lines: int,
+	total_lines: int,
+	saturated_lines: int,
+	utilization: float
+) -> Color:
+	if active_lines == 0:
+		return ThemeManager.COLOR_TEXT_MUTED
+
+	if (
+		saturated_lines > 0
+		or active_lines < total_lines
+		or utilization >= 0.8
+	):
+		return ThemeManager.COLOR_WARNING
+
+	return ThemeManager.COLOR_SUCCESS
 
 
 func _update_alerts() -> void:
