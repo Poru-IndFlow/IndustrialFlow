@@ -1,0 +1,17 @@
+{
+  "id": "steam_vent",
+  "display_name": "Steam Vent",
+  "category": "utility",
+  "processing_mode": "continuous",
+  "cycle_time": 1.0,
+  "inputs": [
+    {
+      "resource": "steam",
+      "amount": 1.0
+    }
+  ],
+  "outputs": [],
+  "internal_storage": {
+    "steam": 10.0
+  }
+}

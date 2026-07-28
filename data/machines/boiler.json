@@ -1,0 +1,28 @@
+{
+  "id": "boiler",
+  "display_name": "Boiler",
+  "category": "utility",
+  "processing_mode": "continuous",
+  "cycle_time": 1.0,
+  "inputs": [
+    {
+      "resource": "water",
+      "amount": 1.0
+    },
+    {
+      "resource": "gas",
+      "amount": 1.0
+    }
+  ],
+  "outputs": [
+    {
+      "resource": "steam",
+      "formula": "water"
+    }
+  ],
+  "internal_storage": {
+    "water": 10.0,
+    "gas": 2.0,
+    "steam": 10.0
+  }
+}

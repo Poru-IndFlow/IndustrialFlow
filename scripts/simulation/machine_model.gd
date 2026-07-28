@@ -19,6 +19,7 @@ var behaviour: MachineBehaviour
 var event_bus: EventBus
 var state := State.IDLE
 var enabled := true
+var operating_rate := 1.0
 var cycle_progress := 0.0
 var graph_position := Vector2.ZERO
 var production_rates_per_second: Dictionary = {}
@@ -62,6 +63,11 @@ func tick(delta_seconds: float) -> void:
 	if not enabled:
 		set_state(State.DISABLED)
 		return
+
+	if operating_rate <= 0.0:
+		set_state(State.IDLE)
+		return
+
 	behaviour.tick(self, delta_seconds)
 
 func set_state(new_state: State) -> void:
@@ -74,6 +80,39 @@ func set_state(new_state: State) -> void:
 func notify_inventory_changed() -> void:
 	if event_bus != null:
 		event_bus.machine_inventory_changed.emit(self)
+
+
+func set_enabled(value: bool) -> void:
+	if enabled == value:
+		return
+
+	enabled = value
+
+	if not enabled:
+		set_state(State.DISABLED)
+	elif operating_rate <= 0.0:
+		set_state(State.IDLE)
+
+	notify_settings_changed()
+
+
+func set_operating_rate(value: float) -> void:
+	var clamped_rate := clampf(value, 0.0, 1.5)
+
+	if is_equal_approx(operating_rate, clamped_rate):
+		return
+
+	operating_rate = clamped_rate
+
+	if enabled and operating_rate <= 0.0:
+		set_state(State.IDLE)
+
+	notify_settings_changed()
+
+
+func notify_settings_changed() -> void:
+	if event_bus != null:
+		event_bus.machine_settings_changed.emit(self)
 
 
 func record_produced(resource_id: String, amount: float) -> void:

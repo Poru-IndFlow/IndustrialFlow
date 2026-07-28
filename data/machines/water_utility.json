@@ -1,0 +1,20 @@
+{
+  "id": "water_utility",
+  "display_name": "Water Utility",
+  "category": "utility",
+  "processing_mode": "supplier",
+  "cycle_time": 1.0,
+  "inputs": [],
+  "outputs": [
+    {
+      "resource": "water",
+      "formula": "requested_water"
+    }
+  ],
+  "variables": {
+    "requested_water": 1.0
+  },
+  "internal_storage": {
+    "water": 20.0
+  }
+}
