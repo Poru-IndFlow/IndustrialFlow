@@ -1,0 +1,163 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/plant_overview.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/ui/kpi_card.tscn" id="2"]
+[ext_resource type="PackedScene" path="res://scenes/ui/status_banner.tscn" id="3"]
+
+[node name="PlantOverview" type="ScrollContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+script = ExtResource("1")
+
+[node name="Margin" type="MarginContainer" parent="."]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_top = 16
+theme_override_constants/margin_right = 16
+theme_override_constants/margin_bottom = 16
+
+[node name="Content" type="VBoxContainer" parent="Margin"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Title" type="Label" parent="Margin/Content"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 24
+text = "Plant Overview"
+
+[node name="BuildLabel" type="Label" parent="Margin/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.333333, 0.65098, 1, 1)
+text = "IndustrialFlow Editor 0.2.0-dev • Build 5"
+
+[node name="Subtitle" type="Label" parent="Margin/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.603922, 0.65098, 0.721569, 1)
+text = "Live operational summary for the current factory."
+
+[node name="StatusBanner" parent="Margin/Content" instance=ExtResource("3")]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="MetricsTitle" type="Label" parent="Margin/Content"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 15
+text = "Plant Metrics"
+
+[node name="Metrics" type="GridContainer" parent="Margin/Content"]
+layout_mode = 2
+size_flags_horizontal = 3
+columns = 3
+
+[node name="TotalCard" parent="Margin/Content/Metrics" instance=ExtResource("2")]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+title_text = "Total Machines"
+
+[node name="RunningCard" parent="Margin/Content/Metrics" instance=ExtResource("2")]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+title_text = "Running"
+
+[node name="IdleCard" parent="Margin/Content/Metrics" instance=ExtResource("2")]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+title_text = "Idle"
+
+[node name="BlockedCard" parent="Margin/Content/Metrics" instance=ExtResource("2")]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+title_text = "Blocked"
+
+[node name="DisabledCard" parent="Margin/Content/Metrics" instance=ExtResource("2")]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+title_text = "Disabled"
+
+[node name="ConnectionsCard" parent="Margin/Content/Metrics" instance=ExtResource("2")]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+title_text = "Connections"
+
+[node name="Separator" type="HSeparator" parent="Margin/Content"]
+layout_mode = 2
+
+[node name="AlertsHeader" type="HBoxContainer" parent="Margin/Content"]
+layout_mode = 2
+
+[node name="AlertsTitle" type="Label" parent="Margin/Content/AlertsHeader"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 15
+text = "Operational Alerts"
+
+[node name="AlertCountLabel" type="Label" parent="Margin/Content/AlertsHeader"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(32, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.603922, 0.65098, 0.721569, 1)
+text = "0"
+horizontal_alignment = 2
+
+[node name="AlertsList" type="VBoxContainer" parent="Margin/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="InventorySeparator" type="HSeparator" parent="Margin/Content"]
+layout_mode = 2
+
+[node name="ThroughputTitle" type="Label" parent="Margin/Content"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 15
+text = "Material Throughput"
+
+[node name="ThroughputHelp" type="Label" parent="Margin/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.603922, 0.65098, 0.721569, 1)
+text = "Measured flow compared with configured connection capacity."
+
+[node name="ThroughputList" type="VBoxContainer" parent="Margin/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="InventorySeparator2" type="HSeparator" parent="Margin/Content"]
+layout_mode = 2
+
+[node name="ProductionTitle" type="Label" parent="Margin/Content"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 15
+text = "Production & Consumption"
+
+[node name="ProductionHelp" type="Label" parent="Margin/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.603922, 0.65098, 0.721569, 1)
+text = "Actual machine quantities measured over one simulation second."
+
+[node name="ProductionList" type="VBoxContainer" parent="Margin/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="InventorySeparator3" type="HSeparator" parent="Margin/Content"]
+layout_mode = 2
+
+[node name="InventoryTitle" type="Label" parent="Margin/Content"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 15
+text = "Plant-wide Inventory"
+
+[node name="InventoryList" type="VBoxContainer" parent="Margin/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3

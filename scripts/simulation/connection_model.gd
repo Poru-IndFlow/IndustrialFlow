@@ -6,6 +6,9 @@ var to_machine: MachineModel
 var resource_id := ""
 var capacity_per_second := 1.0
 var enabled := true
+var last_transferred_amount := 0.0
+var current_rate_per_second := 0.0
+var total_transferred := 0.0
 
 func _init(
 	source: MachineModel,
@@ -19,7 +22,13 @@ func _init(
 	capacity_per_second = maxf(capacity, 0.0)
 
 func tick(delta_seconds: float) -> float:
-	if not enabled or from_machine == null or to_machine == null:
+	if (
+		delta_seconds <= 0.0
+		or not enabled
+		or from_machine == null
+		or to_machine == null
+	):
+		_update_flow_telemetry(0.0, delta_seconds)
 		return 0.0
 
 	var amount := minf(
@@ -31,6 +40,7 @@ func tick(delta_seconds: float) -> float:
 	)
 
 	if amount <= 0.0:
+		_update_flow_telemetry(0.0, delta_seconds)
 		return 0.0
 
 	var removed := from_machine.inventory.remove(resource_id, amount)
@@ -41,4 +51,25 @@ func tick(delta_seconds: float) -> float:
 
 	from_machine.notify_inventory_changed()
 	to_machine.notify_inventory_changed()
+	_update_flow_telemetry(accepted, delta_seconds)
 	return accepted
+
+
+func _update_flow_telemetry(
+	transferred_amount: float,
+	delta_seconds: float
+) -> void:
+	var previous_rate := current_rate_per_second
+	last_transferred_amount = maxf(transferred_amount, 0.0)
+	total_transferred += last_transferred_amount
+	current_rate_per_second = (
+		last_transferred_amount / delta_seconds
+		if delta_seconds > 0.0
+		else 0.0
+	)
+
+	if is_equal_approx(previous_rate, current_rate_per_second):
+		return
+
+	if from_machine != null and from_machine.event_bus != null:
+		from_machine.event_bus.connection_flow_changed.emit(self)

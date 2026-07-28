@@ -1,4 +1,4 @@
-[gd_scene load_steps=9 format=3]
+[gd_scene load_steps=10 format=3]
 
 [ext_resource type="Script" path="res://scripts/ui/factory_graph.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/app/app_controller.gd" id="2"]
@@ -8,6 +8,7 @@
 [ext_resource type="Script" path="res://scripts/ui/refresh_manager.gd" id="6"]
 [ext_resource type="Script" path="res://scripts/ui/editor_toolbar.gd" id="7"]
 [ext_resource type="Script" path="res://scripts/ui/editor_history.gd" id="8"]
+[ext_resource type="PackedScene" path="res://scenes/ui/plant_overview.tscn" id="9"]
 
 [node name="Main" type="Control"]
 layout_mode = 3
@@ -43,10 +44,18 @@ script = ExtResource("3")
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="FactoryGraph" type="GraphEdit" parent="RootVBox/Workspace/EditorSplit"]
+[node name="WorkspaceTabs" type="TabContainer" parent="RootVBox/Workspace/EditorSplit"]
 layout_mode = 2
 size_flags_horizontal = 3
+
+[node name="Factory Graph" type="GraphEdit" parent="RootVBox/Workspace/EditorSplit/WorkspaceTabs"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
 script = ExtResource("1")
+
+[node name="Plant Overview" parent="RootVBox/Workspace/EditorSplit/WorkspaceTabs" instance=ExtResource("9")]
+layout_mode = 2
 
 [node name="MachineInspector" type="PanelContainer" parent="RootVBox/Workspace/EditorSplit"]
 custom_minimum_size = Vector2(300, 0)

@@ -22,12 +22,20 @@ func tick(machine: MachineModel, delta_seconds: float) -> void:
 	for input: Dictionary in machine.recipe.inputs:
 		var resource_id := str(input.get("resource", ""))
 		var amount := float(input.get("amount", 0.0))
-		machine.inventory.remove(resource_id, amount)
+		var consumed := machine.inventory.remove(
+			resource_id,
+			amount
+		)
+		machine.record_consumed(resource_id, consumed)
 
 	for output: Dictionary in outputs:
 		var resource_id := str(output.get("resource", ""))
 		var amount := float(output.get("amount", 0.0))
-		machine.inventory.add(resource_id, amount)
+		var produced := machine.inventory.add(
+			resource_id,
+			amount
+		)
+		machine.record_produced(resource_id, produced)
 
 	machine.cycle_progress -= machine.recipe.cycle_time
 	machine.notify_inventory_changed()

@@ -83,6 +83,34 @@ func delete_selected_machines() -> int:
 	return _delete_machine_ids(_get_selected_machine_ids())
 
 
+func select_and_focus_machine(machine_id: String) -> void:
+	var target := get_node_or_null(
+		NodePath(machine_id)
+	) as GraphNode
+
+	if target == null or factory == null:
+		return
+
+	for child: Node in get_children():
+		var graph_node := child as GraphNode
+
+		if graph_node != null:
+			graph_node.selected = graph_node == target
+
+	scroll_offset = (
+		target.position_offset
+		+ target.size * 0.5
+		- size * 0.5 / zoom
+	)
+
+	var machine := factory.get_machine(machine_id)
+
+	if machine != null:
+		machine_selected.emit(machine)
+
+	_request_selection_notification()
+
+
 func clear_graph() -> void:
 	clear_connections()
 	input_ports.clear()

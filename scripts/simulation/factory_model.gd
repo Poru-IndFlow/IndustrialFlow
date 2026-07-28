@@ -123,4 +123,10 @@ func tick(delta_seconds: float) -> void:
 		connection.tick(delta_seconds)
 
 	for value: Variant in machines.values():
-		(value as MachineModel).tick(delta_seconds)
+		var machine := value as MachineModel
+
+		if machine == null:
+			continue
+
+		machine.tick(delta_seconds)
+		machine.advance_production_telemetry(delta_seconds)

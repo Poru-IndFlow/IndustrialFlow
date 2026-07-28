@@ -6,8 +6,16 @@ extends Node
 ) as EditorToolbar
 
 @onready var factory_graph := get_node(
-	"../RootVBox/Workspace/EditorSplit/FactoryGraph"
+	"../RootVBox/Workspace/EditorSplit/WorkspaceTabs/Factory Graph"
 )
+
+@onready var plant_overview := get_node(
+	"../RootVBox/Workspace/EditorSplit/WorkspaceTabs/Plant Overview"
+) as PlantOverview
+
+@onready var workspace_tabs := get_node(
+	"../RootVBox/Workspace/EditorSplit/WorkspaceTabs"
+) as TabContainer
 
 @onready var machine_palette := get_node(
 	"../RootVBox/Workspace/MachinePalette"
@@ -42,6 +50,10 @@ func _ready() -> void:
 	factory_graph.bind_refresh_manager(refresh_manager)
 	factory_graph.bind_history(editor_history)
 	machine_inspector.bind_refresh_manager(refresh_manager)
+	plant_overview.bind_refresh_manager(refresh_manager)
+	plant_overview.machine_requested.connect(
+		_on_overview_machine_requested
+	)
 
 	editor_toolbar.undo_requested.connect(editor_history.undo)
 	editor_toolbar.redo_requested.connect(editor_history.redo)
@@ -92,6 +104,7 @@ func set_factory(new_factory: FactoryModel) -> void:
 	factory = new_factory
 	factory_graph.bind_factory(factory)
 	machine_inspector.bind_factory(factory)
+	plant_overview.bind_factory(factory)
 
 	if editor_history != null:
 		editor_history.clear()
@@ -110,6 +123,14 @@ func _on_machine_requested(definition_id: String) -> void:
 
 func _on_machine_selected(machine: MachineModel) -> void:
 	machine_inspector.show_machine(machine)
+
+
+func _on_overview_machine_requested(machine_id: String) -> void:
+	workspace_tabs.current_tab = 0
+	factory_graph.call_deferred(
+		"select_and_focus_machine",
+		machine_id
+	)
 
 
 func _on_selection_changed(selected_count: int) -> void:
