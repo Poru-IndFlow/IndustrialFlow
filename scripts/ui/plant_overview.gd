@@ -16,6 +16,7 @@ var factory: FactoryModel
 var refresh_manager: RefreshManager
 var alert_signature := ""
 var throughput_signature := ""
+var production_signature := ""
 
 @onready var build_label := %BuildLabel as Label
 @onready var status_banner := %StatusBanner as StatusBanner
@@ -28,6 +29,7 @@ var throughput_signature := ""
 @onready var alert_count_label := %AlertCountLabel as Label
 @onready var alerts_list := %AlertsList as VBoxContainer
 @onready var throughput_list := %ThroughputList as VBoxContainer
+@onready var production_list := %ProductionList as VBoxContainer
 @onready var inventory_list := %InventoryList as VBoxContainer
 
 
@@ -52,6 +54,7 @@ func bind_factory(new_factory: FactoryModel) -> void:
 	factory = new_factory
 	alert_signature = ""
 	throughput_signature = ""
+	production_signature = ""
 	_connect_factory_events()
 	_request_refresh()
 
@@ -68,7 +71,8 @@ func _connect_factory_events() -> void:
 		factory.event_bus.connection_removed,
 		factory.event_bus.connection_flow_changed,
 		factory.event_bus.machine_state_changed,
-		factory.event_bus.machine_inventory_changed
+		factory.event_bus.machine_inventory_changed,
+		factory.event_bus.machine_production_changed
 	]
 
 	for factory_signal: Signal in signals:
@@ -88,7 +92,8 @@ func _disconnect_factory_events() -> void:
 		factory.event_bus.connection_removed,
 		factory.event_bus.connection_flow_changed,
 		factory.event_bus.machine_state_changed,
-		factory.event_bus.machine_inventory_changed
+		factory.event_bus.machine_inventory_changed,
+		factory.event_bus.machine_production_changed
 	]
 
 	for factory_signal: Signal in signals:
@@ -160,6 +165,7 @@ func _refresh() -> void:
 	_update_status(total, running, blocked, disabled)
 	_update_alerts()
 	_update_throughput()
+	_update_production()
 	_update_inventory(inventory_totals)
 
 
@@ -424,6 +430,114 @@ func _throughput_status_color(
 		return ThemeManager.COLOR_WARNING
 
 	return ThemeManager.COLOR_SUCCESS
+
+
+func _update_production() -> void:
+	var produced_rates: Dictionary = {}
+	var consumed_rates: Dictionary = {}
+
+	if factory != null:
+		for value: Variant in factory.machines.values():
+			var machine := value as MachineModel
+
+			if machine == null:
+				continue
+
+			_sum_rates(
+				produced_rates,
+				machine.production_rates_per_second
+			)
+			_sum_rates(
+				consumed_rates,
+				machine.consumption_rates_per_second
+			)
+
+	var resource_ids: Array[String] = []
+
+	for key: Variant in produced_rates.keys():
+		var resource_id := str(key)
+
+		if not resource_ids.has(resource_id):
+			resource_ids.append(resource_id)
+
+	for key: Variant in consumed_rates.keys():
+		var resource_id := str(key)
+
+		if not resource_ids.has(resource_id):
+			resource_ids.append(resource_id)
+
+	resource_ids.sort()
+	var new_signature := _build_production_signature(
+		resource_ids,
+		produced_rates,
+		consumed_rates
+	)
+
+	if new_signature == production_signature:
+		return
+
+	production_signature = new_signature
+	UIWidgets.clear_container(production_list)
+
+	if resource_ids.is_empty():
+		production_list.add_child(
+			UIWidgets.create_empty_label(
+				"No production recorded in the current window."
+			)
+		)
+		return
+
+	for resource_id: String in resource_ids:
+		var produced := float(
+			produced_rates.get(resource_id, 0.0)
+		)
+		var consumed := float(
+			consumed_rates.get(resource_id, 0.0)
+		)
+		var net_rate := produced - consumed
+		var unit := ResourceRegistry.get_unit(resource_id)
+		production_list.add_child(
+			UIWidgets.create_labeled_value(
+				ResourceRegistry.get_display_name(resource_id),
+				"Produced %.2f · Consumed %.2f · Net %.2f %s/s" % [
+					produced,
+					consumed,
+					net_rate,
+					unit
+				]
+			)
+		)
+
+
+func _sum_rates(target: Dictionary, source: Dictionary) -> void:
+	for key: Variant in source.keys():
+		var resource_id := str(key)
+		target[resource_id] = (
+			float(target.get(resource_id, 0.0))
+			+ float(source.get(resource_id, 0.0))
+		)
+
+
+func _build_production_signature(
+	resource_ids: Array[String],
+	produced_rates: Dictionary,
+	consumed_rates: Dictionary
+) -> String:
+	if resource_ids.is_empty():
+		return "none"
+
+	var parts: PackedStringArray = []
+
+	for resource_id: String in resource_ids:
+		parts.append(
+			"%s:%.6f:%.6f" % [
+				resource_id,
+				float(produced_rates.get(resource_id, 0.0)),
+				float(consumed_rates.get(resource_id, 0.0))
+			]
+		)
+
+	return "|".join(parts)
 
 
 func _update_alerts() -> void:
