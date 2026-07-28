@@ -14,7 +14,7 @@ func tick(machine: MachineModel, delta_seconds: float) -> void:
 			return
 
 	machine.set_state(MachineModel.State.RUNNING)
-	machine.cycle_progress += delta_seconds
+	machine.cycle_progress += delta_seconds * machine.operating_rate
 
 	while machine.cycle_progress >= machine.recipe.cycle_time:
 		for output: Dictionary in outputs:

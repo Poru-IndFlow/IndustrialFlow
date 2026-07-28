@@ -8,9 +8,12 @@ var refresh_manager: RefreshManager
 var name_label: Label
 var id_label: Label
 var state_badge: Label
+var enabled_check_box: CheckBox
+var operating_rate_spin_box: SpinBox
 var input_list: VBoxContainer
 var output_list: VBoxContainer
 var inventory_list: VBoxContainer
+var updating_controls := false
 
 
 func _ready() -> void:
@@ -39,6 +42,37 @@ func _ready() -> void:
 		ThemeManager.COLOR_TEXT_MUTED
 	)
 	root.add_child(state_badge)
+
+	root.add_child(HSeparator.new())
+
+	var operation_title := UIWidgets.create_section_header(
+		"Operation"
+	)
+	root.add_child(operation_title)
+
+	enabled_check_box = CheckBox.new()
+	enabled_check_box.text = "Enabled"
+	enabled_check_box.toggled.connect(_on_enabled_toggled)
+	root.add_child(enabled_check_box)
+
+	var rate_row := HBoxContainer.new()
+	root.add_child(rate_row)
+
+	var rate_label := Label.new()
+	rate_label.text = "Operating rate"
+	rate_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rate_row.add_child(rate_label)
+
+	operating_rate_spin_box = SpinBox.new()
+	operating_rate_spin_box.custom_minimum_size = Vector2(105, 0)
+	operating_rate_spin_box.min_value = 0.0
+	operating_rate_spin_box.max_value = 150.0
+	operating_rate_spin_box.step = 5.0
+	operating_rate_spin_box.suffix = "%"
+	operating_rate_spin_box.value_changed.connect(
+		_on_operating_rate_changed
+	)
+	rate_row.add_child(operating_rate_spin_box)
 
 	root.add_child(HSeparator.new())
 
@@ -86,6 +120,9 @@ func bind_factory(new_factory: FactoryModel) -> void:
 	factory.event_bus.machine_inventory_changed.connect(
 		_on_machine_changed
 	)
+	factory.event_bus.machine_settings_changed.connect(
+		_on_machine_changed
+	)
 	factory.event_bus.machine_removed.connect(
 		_on_machine_removed
 	)
@@ -102,6 +139,10 @@ func _disconnect_factory_signals() -> void:
 		"_on_machine_changed"
 	)
 	var inventory_callback := Callable(
+		self,
+		"_on_machine_changed"
+	)
+	var settings_callback := Callable(
 		self,
 		"_on_machine_changed"
 	)
@@ -122,6 +163,13 @@ func _disconnect_factory_signals() -> void:
 	):
 		factory.event_bus.machine_inventory_changed.disconnect(
 			inventory_callback
+		)
+
+	if factory.event_bus.machine_settings_changed.is_connected(
+		settings_callback
+	):
+		factory.event_bus.machine_settings_changed.disconnect(
+			settings_callback
 		)
 
 	if factory.event_bus.machine_removed.is_connected(
@@ -163,8 +211,14 @@ func _refresh() -> void:
 	UIWidgets.clear_container(inventory_list)
 
 	if selected_machine == null:
+		updating_controls = true
 		name_label.text = "No machine selected"
 		id_label.text = ""
+		enabled_check_box.button_pressed = false
+		enabled_check_box.disabled = true
+		operating_rate_spin_box.value = 0.0
+		operating_rate_spin_box.editable = false
+		updating_controls = false
 		UIWidgets.update_status_badge(
 			state_badge,
 			"No selection",
@@ -178,6 +232,14 @@ func _refresh() -> void:
 
 	name_label.text = selected_machine.display_name
 	id_label.text = "ID: %s" % selected_machine.instance_id
+	updating_controls = true
+	enabled_check_box.disabled = false
+	enabled_check_box.button_pressed = selected_machine.enabled
+	operating_rate_spin_box.editable = true
+	operating_rate_spin_box.value = (
+		selected_machine.operating_rate * 100.0
+	)
+	updating_controls = false
 	UIWidgets.update_status_badge(
 		state_badge,
 		_state_text(selected_machine.state),
@@ -193,6 +255,20 @@ func _refresh() -> void:
 		selected_machine.definition.get("outputs", [])
 	)
 	_populate_inventory()
+
+
+func _on_enabled_toggled(enabled: bool) -> void:
+	if updating_controls or selected_machine == null:
+		return
+
+	selected_machine.set_enabled(enabled)
+
+
+func _on_operating_rate_changed(percent: float) -> void:
+	if updating_controls or selected_machine == null:
+		return
+
+	selected_machine.set_operating_rate(percent / 100.0)
 
 
 func _populate_resource_section(

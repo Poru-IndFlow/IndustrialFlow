@@ -100,6 +100,7 @@ static func _serialize_machines(factory: FactoryModel) -> Array[Dictionary]:
 				"y": machine.graph_position.y
 			},
 			"enabled": machine.enabled,
+			"operating_rate": machine.operating_rate,
 			"state": int(machine.state),
 			"cycle_progress": machine.cycle_progress,
 			"inventory": machine.inventory.amounts.duplicate(true)
@@ -168,6 +169,11 @@ static func _deserialize_factory(
 			position
 		)
 		machine.enabled = bool(entry.get("enabled", true))
+		machine.operating_rate = clampf(
+			float(entry.get("operating_rate", 1.0)),
+			0.0,
+			1.5
+		)
 		machine.state = int(
 			entry.get("state", MachineModel.State.IDLE)
 		)
