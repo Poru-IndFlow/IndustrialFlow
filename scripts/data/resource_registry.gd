@@ -31,6 +31,25 @@ static func get_definition(id: String) -> Dictionary:
 	load_all()
 	return _definitions.get(id, {})
 
+
+static func get_all_definitions() -> Array[Dictionary]:
+	load_all()
+	var result: Array[Dictionary] = []
+
+	for value: Variant in _definitions.values():
+		result.append(value as Dictionary)
+
+	result.sort_custom(
+		func(left: Dictionary, right: Dictionary) -> bool:
+			return str(
+				left.get("display_name", "")
+			).naturalnocasecmp_to(
+				str(right.get("display_name", ""))
+			) < 0
+	)
+	return result
+
+
 static func get_display_name(id: String) -> String:
 	return str(get_definition(id).get("display_name", id.capitalize()))
 

@@ -174,13 +174,16 @@ func add_machine_node(machine: MachineModel) -> void:
 		)
 
 		var color := _resource_color(resource_id)
+		var port_type := ResourceRegistry.get_port_type(
+			resource_id
+		)
 		node.set_slot(
 			row,
 			accepts,
-			0,
+			port_type,
 			color,
 			produces,
-			0,
+			port_type,
 			color
 		)
 
@@ -315,13 +318,7 @@ func _indexed_port_key(machine_id: String, port: int) -> String:
 
 
 func _resource_color(resource_id: String) -> Color:
-	match resource_id:
-		"logs":
-			return Color(0.55, 0.32, 0.16)
-		"wood_chips":
-			return Color(0.86, 0.67, 0.30)
-		_:
-			return Color(0.65, 0.75, 0.85)
+	return ResourceRegistry.get_colour(resource_id)
 
 
 func _disconnect_factory_signals() -> void:

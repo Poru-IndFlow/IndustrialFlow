@@ -1,0 +1,20 @@
+{
+  "id": "gas_utility",
+  "display_name": "Natural Gas Utility",
+  "category": "utility",
+  "processing_mode": "supplier",
+  "cycle_time": 1.0,
+  "inputs": [],
+  "outputs": [
+    {
+      "resource": "gas",
+      "formula": "requested_gas"
+    }
+  ],
+  "variables": {
+    "requested_gas": 1.0
+  },
+  "internal_storage": {
+    "gas": 10.0
+  }
+}

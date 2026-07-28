@@ -454,6 +454,12 @@ func _update_production() -> void:
 
 	var resource_ids: Array[String] = []
 
+	for definition: Dictionary in ResourceRegistry.get_all_definitions():
+		var resource_id := str(definition.get("id", ""))
+
+		if not resource_id.is_empty():
+			resource_ids.append(resource_id)
+
 	for key: Variant in produced_rates.keys():
 		var resource_id := str(key)
 
