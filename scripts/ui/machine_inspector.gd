@@ -3,13 +3,22 @@ extends DockPanel
 
 var factory: FactoryModel
 var selected_machine: MachineModel
+var selected_connection: ConnectionModel
 var refresh_manager: RefreshManager
+var history: EditorHistory
 
 var name_label: Label
 var id_label: Label
 var state_badge: Label
+var operation_section: VBoxContainer
+var connection_operation_section: VBoxContainer
 var enabled_check_box: CheckBox
 var operating_rate_spin_box: SpinBox
+var connection_enabled_check_box: CheckBox
+var connection_capacity_spin_box: SpinBox
+var input_title: Label
+var output_title: Label
+var inventory_title: Label
 var input_list: VBoxContainer
 var output_list: VBoxContainer
 var inventory_list: VBoxContainer
@@ -45,18 +54,21 @@ func _ready() -> void:
 
 	root.add_child(HSeparator.new())
 
+	operation_section = VBoxContainer.new()
+	root.add_child(operation_section)
+
 	var operation_title := UIWidgets.create_section_header(
 		"Operation"
 	)
-	root.add_child(operation_title)
+	operation_section.add_child(operation_title)
 
 	enabled_check_box = CheckBox.new()
 	enabled_check_box.text = "Enabled"
 	enabled_check_box.toggled.connect(_on_enabled_toggled)
-	root.add_child(enabled_check_box)
+	operation_section.add_child(enabled_check_box)
 
 	var rate_row := HBoxContainer.new()
-	root.add_child(rate_row)
+	operation_section.add_child(rate_row)
 
 	var rate_label := Label.new()
 	rate_label.text = "Operating rate"
@@ -74,9 +86,53 @@ func _ready() -> void:
 	)
 	rate_row.add_child(operating_rate_spin_box)
 
-	root.add_child(HSeparator.new())
+	operation_section.add_child(HSeparator.new())
 
-	var input_title := UIWidgets.create_section_header("Inputs")
+	connection_operation_section = VBoxContainer.new()
+	connection_operation_section.visible = false
+	root.add_child(connection_operation_section)
+
+	var connection_operation_title := (
+		UIWidgets.create_section_header("Connection Control")
+	)
+	connection_operation_section.add_child(
+		connection_operation_title
+	)
+
+	connection_enabled_check_box = CheckBox.new()
+	connection_enabled_check_box.text = "Enabled"
+	connection_enabled_check_box.toggled.connect(
+		_on_connection_enabled_toggled
+	)
+	connection_operation_section.add_child(
+		connection_enabled_check_box
+	)
+
+	var capacity_row := HBoxContainer.new()
+	connection_operation_section.add_child(capacity_row)
+
+	var capacity_label := Label.new()
+	capacity_label.text = "Capacity"
+	capacity_label.size_flags_horizontal = (
+		Control.SIZE_EXPAND_FILL
+	)
+	capacity_row.add_child(capacity_label)
+
+	connection_capacity_spin_box = SpinBox.new()
+	connection_capacity_spin_box.custom_minimum_size = (
+		Vector2(130, 0)
+	)
+	connection_capacity_spin_box.min_value = 0.05
+	connection_capacity_spin_box.max_value = 10.0
+	connection_capacity_spin_box.step = 0.05
+	connection_capacity_spin_box.value_changed.connect(
+		_on_connection_capacity_changed
+	)
+	capacity_row.add_child(connection_capacity_spin_box)
+
+	connection_operation_section.add_child(HSeparator.new())
+
+	input_title = UIWidgets.create_section_header("Inputs")
 	root.add_child(input_title)
 
 	input_list = VBoxContainer.new()
@@ -84,7 +140,7 @@ func _ready() -> void:
 
 	root.add_child(HSeparator.new())
 
-	var output_title := UIWidgets.create_section_header("Outputs")
+	output_title = UIWidgets.create_section_header("Outputs")
 	root.add_child(output_title)
 
 	output_list = VBoxContainer.new()
@@ -92,7 +148,7 @@ func _ready() -> void:
 
 	root.add_child(HSeparator.new())
 
-	var inventory_title := UIWidgets.create_section_header("Inventory")
+	inventory_title = UIWidgets.create_section_header("Inventory")
 	root.add_child(inventory_title)
 
 	inventory_list = VBoxContainer.new()
@@ -103,12 +159,17 @@ func bind_refresh_manager(manager: RefreshManager) -> void:
 	refresh_manager = manager
 
 
+func bind_history(new_history: EditorHistory) -> void:
+	history = new_history
+
+
 func bind_factory(new_factory: FactoryModel) -> void:
 	if factory != null:
 		_disconnect_factory_signals()
 
 	factory = new_factory
 	selected_machine = null
+	selected_connection = null
 	_request_refresh()
 
 	if factory == null:
@@ -123,6 +184,15 @@ func bind_factory(new_factory: FactoryModel) -> void:
 	factory.event_bus.machine_settings_changed.connect(
 		_on_machine_changed
 	)
+	factory.event_bus.connection_flow_changed.connect(
+		_on_connection_changed
+	)
+	factory.event_bus.connection_settings_changed.connect(
+		_on_connection_changed
+	)
+	factory.event_bus.connection_removed.connect(
+		_on_connection_removed
+	)
 	factory.event_bus.machine_removed.connect(
 		_on_machine_removed
 	)
@@ -130,6 +200,13 @@ func bind_factory(new_factory: FactoryModel) -> void:
 
 func show_machine(machine: MachineModel) -> void:
 	selected_machine = machine
+	selected_connection = null
+	_request_refresh()
+
+
+func show_connection(connection: ConnectionModel) -> void:
+	selected_connection = connection
+	selected_machine = null
 	_request_refresh()
 
 
@@ -149,6 +226,14 @@ func _disconnect_factory_signals() -> void:
 	var removed_callback := Callable(
 		self,
 		"_on_machine_removed"
+	)
+	var connection_callback := Callable(
+		self,
+		"_on_connection_changed"
+	)
+	var connection_removed_callback := Callable(
+		self,
+		"_on_connection_removed"
 	)
 
 	if factory.event_bus.machine_state_changed.is_connected(
@@ -179,6 +264,27 @@ func _disconnect_factory_signals() -> void:
 			removed_callback
 		)
 
+	if factory.event_bus.connection_flow_changed.is_connected(
+		connection_callback
+	):
+		factory.event_bus.connection_flow_changed.disconnect(
+			connection_callback
+		)
+
+	if factory.event_bus.connection_settings_changed.is_connected(
+		connection_callback
+	):
+		factory.event_bus.connection_settings_changed.disconnect(
+			connection_callback
+		)
+
+	if factory.event_bus.connection_removed.is_connected(
+		connection_removed_callback
+	):
+		factory.event_bus.connection_removed.disconnect(
+			connection_removed_callback
+		)
+
 
 func _on_machine_changed(machine: MachineModel) -> void:
 	if machine == selected_machine:
@@ -191,6 +297,17 @@ func _on_machine_removed(machine_id: String) -> void:
 		and selected_machine.instance_id == machine_id
 	):
 		selected_machine = null
+		_request_refresh()
+
+
+func _on_connection_changed(connection: ConnectionModel) -> void:
+	if connection == selected_connection:
+		_request_refresh()
+
+
+func _on_connection_removed(connection: ConnectionModel) -> void:
+	if connection == selected_connection:
+		selected_connection = null
 		_request_refresh()
 
 
@@ -210,7 +327,17 @@ func _refresh() -> void:
 	UIWidgets.clear_container(output_list)
 	UIWidgets.clear_container(inventory_list)
 
+	if selected_connection != null:
+		_refresh_connection()
+		return
+
 	if selected_machine == null:
+		set_dock_title("Inspector")
+		operation_section.visible = false
+		connection_operation_section.visible = false
+		input_title.text = "Inputs"
+		output_title.text = "Outputs"
+		inventory_title.text = "Inventory"
 		updating_controls = true
 		name_label.text = "No machine selected"
 		id_label.text = ""
@@ -230,6 +357,12 @@ func _refresh() -> void:
 		_add_empty_label(inventory_list)
 		return
 
+	set_dock_title("Machine Inspector")
+	operation_section.visible = true
+	connection_operation_section.visible = false
+	input_title.text = "Inputs"
+	output_title.text = "Outputs"
+	inventory_title.text = "Inventory"
 	name_label.text = selected_machine.display_name
 	id_label.text = "ID: %s" % selected_machine.instance_id
 	updating_controls = true
@@ -255,6 +388,139 @@ func _refresh() -> void:
 		selected_machine.definition.get("outputs", [])
 	)
 	_populate_inventory()
+
+
+func _refresh_connection() -> void:
+	set_dock_title("Connection Inspector")
+	operation_section.visible = false
+	connection_operation_section.visible = true
+	input_title.text = "Endpoints"
+	output_title.text = "Flow"
+	inventory_title.text = "Configuration"
+
+	var source := selected_connection.from_machine
+	var destination := selected_connection.to_machine
+	var resource_id := selected_connection.resource_id
+	var unit := ResourceRegistry.get_unit(resource_id)
+
+	updating_controls = true
+	connection_enabled_check_box.button_pressed = (
+		selected_connection.enabled
+	)
+	connection_capacity_spin_box.value = (
+		selected_connection.capacity_per_second
+	)
+	connection_capacity_spin_box.suffix = " %s/s" % unit
+	updating_controls = false
+
+	name_label.text = ResourceRegistry.get_display_name(
+		resource_id
+	)
+	id_label.text = "%s → %s" % [
+		source.display_name,
+		destination.display_name
+	]
+	UIWidgets.update_status_badge(
+		state_badge,
+		"Enabled" if selected_connection.enabled else "Disabled",
+		(
+			ThemeManager.COLOR_SUCCESS
+			if selected_connection.enabled
+			else ThemeManager.COLOR_TEXT_MUTED
+		)
+	)
+
+	input_list.add_child(
+		UIWidgets.create_labeled_value(
+			"Source",
+			source.display_name
+		)
+	)
+	input_list.add_child(
+		UIWidgets.create_labeled_value(
+			"Destination",
+			destination.display_name
+		)
+	)
+	output_list.add_child(
+		UIWidgets.create_labeled_value(
+			"Resource",
+			ResourceRegistry.get_display_name(resource_id)
+		)
+	)
+	output_list.add_child(
+		UIWidgets.create_labeled_value(
+			"Current rate",
+			"%.2f %s/s" % [
+				selected_connection.current_rate_per_second,
+				unit
+			]
+		)
+	)
+	inventory_list.add_child(
+		UIWidgets.create_labeled_value(
+			"Capacity",
+			"%.2f %s/s" % [
+				selected_connection.capacity_per_second,
+				unit
+			]
+		)
+	)
+	inventory_list.add_child(
+		UIWidgets.create_labeled_value(
+			"Enabled",
+			"Yes" if selected_connection.enabled else "No"
+		)
+	)
+
+
+func _on_connection_enabled_toggled(value: bool) -> void:
+	if updating_controls or selected_connection == null:
+		return
+
+	var previous_value := selected_connection.enabled
+	var label := (
+		"enable connection"
+		if value
+		else "disable connection"
+	)
+	_execute_setting_action(
+		label,
+		selected_connection.set_enabled.bind(value),
+		selected_connection.set_enabled.bind(previous_value)
+	)
+
+
+func _on_connection_capacity_changed(value: float) -> void:
+	if updating_controls or selected_connection == null:
+		return
+
+	var previous_value := (
+		selected_connection.capacity_per_second
+	)
+
+	if is_equal_approx(previous_value, value):
+		return
+
+	_execute_setting_action(
+		"set connection capacity",
+		selected_connection.set_capacity_per_second.bind(value),
+		selected_connection.set_capacity_per_second.bind(
+			previous_value
+		)
+	)
+
+
+func _execute_setting_action(
+	label: String,
+	do_action: Callable,
+	undo_action: Callable
+) -> void:
+	if history == null:
+		do_action.call()
+		return
+
+	history.execute(label, do_action, undo_action)
 
 
 func _on_enabled_toggled(enabled: bool) -> void:

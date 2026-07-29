@@ -50,6 +50,7 @@ func _ready() -> void:
 	factory_graph.bind_refresh_manager(refresh_manager)
 	factory_graph.bind_history(editor_history)
 	machine_inspector.bind_refresh_manager(refresh_manager)
+	machine_inspector.bind_history(editor_history)
 	plant_overview.bind_refresh_manager(refresh_manager)
 	plant_overview.machine_requested.connect(
 		_on_overview_machine_requested
@@ -75,6 +76,9 @@ func _ready() -> void:
 
 	factory_graph.machine_selected.connect(
 		_on_machine_selected
+	)
+	factory_graph.connection_selected.connect(
+		_on_connection_selected
 	)
 	factory_graph.selection_changed.connect(
 		_on_selection_changed
@@ -123,6 +127,10 @@ func _on_machine_requested(definition_id: String) -> void:
 
 func _on_machine_selected(machine: MachineModel) -> void:
 	machine_inspector.show_machine(machine)
+
+
+func _on_connection_selected(connection: ConnectionModel) -> void:
+	machine_inspector.show_connection(connection)
 
 
 func _on_overview_machine_requested(machine_id: String) -> void:

@@ -2,6 +2,7 @@ extends GraphEdit
 
 
 signal machine_selected(machine: MachineModel)
+signal connection_selected(connection: ConnectionModel)
 signal selection_changed(selected_count: int)
 signal machines_deleted(deleted_count: int)
 
@@ -18,6 +19,7 @@ var resource_labels: Dictionary = {}
 var dirty_machines: Dictionary = {}
 var selection_notification_pending := false
 var move_start_positions: Dictionary = {}
+var selected_connection: ConnectionModel
 
 
 func _ready() -> void:
@@ -27,6 +29,35 @@ func _ready() -> void:
 	begin_node_move.connect(_on_begin_node_move)
 	end_node_move.connect(_on_end_node_move)
 	right_disconnects = true
+
+
+func _gui_input(event: InputEvent) -> void:
+	var mouse_event := event as InputEventMouseButton
+
+	if (
+		mouse_event == null
+		or not mouse_event.pressed
+		or mouse_event.button_index != MOUSE_BUTTON_LEFT
+	):
+		return
+
+	var graph_connection: Dictionary = (
+		get_closest_connection_at_point(
+			mouse_event.position,
+			8.0
+		)
+	)
+
+	if graph_connection.is_empty():
+		return
+
+	var connection := _get_model_connection(
+		graph_connection
+	)
+
+	if connection != null:
+		_select_connection(connection)
+		accept_event()
 
 
 func bind_refresh_manager(manager: RefreshManager) -> void:
@@ -112,6 +143,7 @@ func select_and_focus_machine(machine_id: String) -> void:
 
 
 func clear_graph() -> void:
+	selected_connection = null
 	clear_connections()
 	input_ports.clear()
 	output_ports.clear()
@@ -306,6 +338,77 @@ func _draw_connection(connection: ConnectionModel) -> void:
 		int(output_ports[from_key]),
 		connection.to_machine.instance_id,
 		int(input_ports[to_key])
+	)
+
+	if connection == selected_connection:
+		_set_connection_activity(connection, 1.0)
+
+
+func _get_model_connection(
+	graph_connection: Dictionary
+) -> ConnectionModel:
+	if factory == null:
+		return null
+
+	var from_id := str(
+		graph_connection.get("from_node", "")
+	)
+	var to_id := str(
+		graph_connection.get("to_node", "")
+	)
+	var from_port := int(
+		graph_connection.get("from_port", -1)
+	)
+	var output_key := _indexed_port_key(from_id, from_port)
+
+	if not output_port_resources.has(output_key):
+		return null
+
+	return factory.find_connection(
+		from_id,
+		to_id,
+		str(output_port_resources[output_key])
+	)
+
+
+func _select_connection(connection: ConnectionModel) -> void:
+	if selected_connection == connection:
+		connection_selected.emit(connection)
+		return
+
+	if selected_connection != null:
+		_set_connection_activity(selected_connection, 0.0)
+
+	selected_connection = connection
+
+	if selected_connection != null:
+		_set_connection_activity(selected_connection, 1.0)
+
+	connection_selected.emit(selected_connection)
+
+
+func _set_connection_activity(
+	connection: ConnectionModel,
+	activity: float
+) -> void:
+	var from_key := _port_key(
+		connection.from_machine.instance_id,
+		connection.resource_id
+	)
+	var to_key := _port_key(
+		connection.to_machine.instance_id,
+		connection.resource_id
+	)
+
+	if not output_ports.has(from_key) or not input_ports.has(to_key):
+		return
+
+	set_connection_activity(
+		connection.from_machine.instance_id,
+		int(output_ports[from_key]),
+		connection.to_machine.instance_id,
+		int(input_ports[to_key]),
+		activity
 	)
 
 
@@ -678,10 +781,18 @@ func _on_connection_added(connection: ConnectionModel) -> void:
 
 
 func _on_connection_removed(_connection: ConnectionModel) -> void:
+	if selected_connection == _connection:
+		selected_connection = null
+		connection_selected.emit(null)
+
 	_rebuild_connections()
 
 
 func _on_graph_node_selected(machine: MachineModel) -> void:
+	if selected_connection != null:
+		_set_connection_activity(selected_connection, 0.0)
+		selected_connection = null
+
 	machine_selected.emit(machine)
 	_request_selection_notification()
 
