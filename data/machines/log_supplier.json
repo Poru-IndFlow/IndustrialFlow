@@ -3,18 +3,20 @@
   "display_name": "Log Supplier",
   "category": "supplier",
   "processing_mode": "supplier",
+  "ramp_up_seconds": 1.0,
+  "ramp_down_seconds": 1.0,
   "cycle_time": 2.0,
   "inputs": [],
   "outputs": [
-    {
-      "resource": "logs",
-      "formula": "requested_logs"
-    }
+	{
+	  "resource": "logs",
+	  "formula": "requested_logs"
+	}
   ],
   "variables": {
-    "requested_logs": 1.0
+	"requested_logs": 1.0
   },
   "internal_storage": {
-    "logs": 100.0
+	"logs": 100.0
   }
 }

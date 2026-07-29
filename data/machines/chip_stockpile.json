@@ -3,17 +3,19 @@
   "display_name": "Chip Stockpile",
   "category": "storage",
   "processing_mode": "storage",
+  "ramp_up_seconds": 0.5,
+  "ramp_down_seconds": 0.5,
   "inputs": [
-    {
-      "resource": "wood_chips"
-    }
+	{
+	  "resource": "wood_chips"
+	}
   ],
   "outputs": [
-    {
-      "resource": "wood_chips"
-    }
+	{
+	  "resource": "wood_chips"
+	}
   ],
   "storage_capacity": {
-    "wood_chips": 10000.0
+	"wood_chips": 10000.0
   }
 }

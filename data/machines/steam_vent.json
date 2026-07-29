@@ -3,6 +3,8 @@
   "display_name": "Steam Vent",
   "category": "utility",
   "processing_mode": "continuous",
+  "ramp_up_seconds": 1.0,
+  "ramp_down_seconds": 1.0,
   "cycle_time": 1.0,
   "inputs": [
     {

@@ -20,6 +20,9 @@ var event_bus: EventBus
 var state := State.IDLE
 var enabled := true
 var operating_rate := 1.0
+var actual_operating_rate := 0.0
+var ramp_up_seconds := 1.0
+var ramp_down_seconds := 1.0
 var cycle_progress := 0.0
 var graph_position := Vector2.ZERO
 var production_rates_per_second: Dictionary = {}
@@ -45,6 +48,14 @@ static func create(
 	)
 	machine.event_bus = bus
 	machine.graph_position = position
+	machine.ramp_up_seconds = maxf(
+		0.001,
+		float(machine_definition.get("ramp_up_seconds", 1.0))
+	)
+	machine.ramp_down_seconds = maxf(
+		0.001,
+		float(machine_definition.get("ramp_down_seconds", 1.0))
+	)
 	machine.recipe = RecipeDefinition.from_machine_definition(machine_definition)
 
 	var capacities: Dictionary = {}
@@ -60,11 +71,13 @@ static func create(
 	return machine
 
 func tick(delta_seconds: float) -> void:
+	_update_actual_operating_rate(delta_seconds)
+
 	if not enabled:
 		set_state(State.DISABLED)
 		return
 
-	if operating_rate <= 0.0:
+	if actual_operating_rate <= 0.0:
 		set_state(State.IDLE)
 		return
 
@@ -90,7 +103,10 @@ func set_enabled(value: bool) -> void:
 
 	if not enabled:
 		set_state(State.DISABLED)
-	elif operating_rate <= 0.0:
+	elif (
+		operating_rate <= 0.0
+		and actual_operating_rate <= 0.0
+	):
 		set_state(State.IDLE)
 
 	notify_settings_changed()
@@ -104,7 +120,11 @@ func set_operating_rate(value: float) -> void:
 
 	operating_rate = clamped_rate
 
-	if enabled and operating_rate <= 0.0:
+	if (
+		enabled
+		and operating_rate <= 0.0
+		and actual_operating_rate <= 0.0
+	):
 		set_state(State.IDLE)
 
 	notify_settings_changed()
@@ -113,6 +133,30 @@ func set_operating_rate(value: float) -> void:
 func notify_settings_changed() -> void:
 	if event_bus != null:
 		event_bus.machine_settings_changed.emit(self)
+
+
+func _update_actual_operating_rate(delta_seconds: float) -> void:
+	if delta_seconds <= 0.0:
+		return
+
+	var target_rate := operating_rate if enabled else 0.0
+	var ramp_seconds := (
+		ramp_up_seconds
+		if target_rate > actual_operating_rate
+		else ramp_down_seconds
+	)
+	var previous_rate := actual_operating_rate
+	actual_operating_rate = move_toward(
+		actual_operating_rate,
+		target_rate,
+		delta_seconds / ramp_seconds
+	)
+
+	if (
+		not is_equal_approx(previous_rate, actual_operating_rate)
+		and event_bus != null
+	):
+		event_bus.machine_performance_changed.emit(self)
 
 
 func record_produced(resource_id: String, amount: float) -> void:

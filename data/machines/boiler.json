@@ -3,6 +3,8 @@
   "display_name": "Boiler",
   "category": "utility",
   "processing_mode": "continuous",
+  "ramp_up_seconds": 5.0,
+  "ramp_down_seconds": 3.0,
   "cycle_time": 1.0,
   "inputs": [
     {

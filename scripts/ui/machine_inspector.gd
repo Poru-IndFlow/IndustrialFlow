@@ -14,6 +14,7 @@ var operation_section: VBoxContainer
 var connection_operation_section: VBoxContainer
 var enabled_check_box: CheckBox
 var operating_rate_spin_box: SpinBox
+var actual_rate_value_label: Label
 var connection_enabled_check_box: CheckBox
 var connection_capacity_spin_box: SpinBox
 var input_title: Label
@@ -85,6 +86,15 @@ func _ready() -> void:
 		_on_operating_rate_changed
 	)
 	rate_row.add_child(operating_rate_spin_box)
+
+	var actual_rate_row := UIWidgets.create_labeled_value(
+		"Actual speed",
+		"0%"
+	)
+	actual_rate_value_label = UIWidgets.get_value_label(
+		actual_rate_row
+	)
+	operation_section.add_child(actual_rate_row)
 
 	operation_section.add_child(HSeparator.new())
 
@@ -184,6 +194,9 @@ func bind_factory(new_factory: FactoryModel) -> void:
 	factory.event_bus.machine_settings_changed.connect(
 		_on_machine_changed
 	)
+	factory.event_bus.machine_performance_changed.connect(
+		_on_machine_performance_changed
+	)
 	factory.event_bus.connection_flow_changed.connect(
 		_on_connection_changed
 	)
@@ -227,6 +240,10 @@ func _disconnect_factory_signals() -> void:
 		self,
 		"_on_machine_removed"
 	)
+	var performance_callback := Callable(
+		self,
+		"_on_machine_performance_changed"
+	)
 	var connection_callback := Callable(
 		self,
 		"_on_connection_changed"
@@ -255,6 +272,13 @@ func _disconnect_factory_signals() -> void:
 	):
 		factory.event_bus.machine_settings_changed.disconnect(
 			settings_callback
+		)
+
+	if factory.event_bus.machine_performance_changed.is_connected(
+		performance_callback
+	):
+		factory.event_bus.machine_performance_changed.disconnect(
+			performance_callback
 		)
 
 	if factory.event_bus.machine_removed.is_connected(
@@ -289,6 +313,11 @@ func _disconnect_factory_signals() -> void:
 func _on_machine_changed(machine: MachineModel) -> void:
 	if machine == selected_machine:
 		_request_refresh()
+
+
+func _on_machine_performance_changed(machine: MachineModel) -> void:
+	if machine == selected_machine:
+		_update_actual_rate_label()
 
 
 func _on_machine_removed(machine_id: String) -> void:
@@ -345,6 +374,7 @@ func _refresh() -> void:
 		enabled_check_box.disabled = true
 		operating_rate_spin_box.value = 0.0
 		operating_rate_spin_box.editable = false
+		actual_rate_value_label.text = "0%"
 		updating_controls = false
 		UIWidgets.update_status_badge(
 			state_badge,
@@ -372,6 +402,7 @@ func _refresh() -> void:
 	operating_rate_spin_box.value = (
 		selected_machine.operating_rate * 100.0
 	)
+	_update_actual_rate_label()
 	updating_controls = false
 	UIWidgets.update_status_badge(
 		state_badge,
@@ -388,6 +419,19 @@ func _refresh() -> void:
 		selected_machine.definition.get("outputs", [])
 	)
 	_populate_inventory()
+
+
+func _update_actual_rate_label() -> void:
+	if actual_rate_value_label == null:
+		return
+
+	if selected_machine == null:
+		actual_rate_value_label.text = "0%"
+		return
+
+	actual_rate_value_label.text = "%.0f%%" % (
+		selected_machine.actual_operating_rate * 100.0
+	)
 
 
 func _refresh_connection() -> void:

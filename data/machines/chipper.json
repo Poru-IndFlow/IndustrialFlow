@@ -3,21 +3,23 @@
   "display_name": "Chipper",
   "category": "processing",
   "processing_mode": "continuous",
+  "ramp_up_seconds": 3.0,
+  "ramp_down_seconds": 2.0,
   "cycle_time": 4.0,
   "inputs": [
-    {
-      "resource": "logs",
-      "amount": 1.0
-    }
+	{
+	  "resource": "logs",
+	  "amount": 1.0
+	}
   ],
   "outputs": [
-    {
-      "resource": "wood_chips",
-      "formula": "logs * 100"
-    }
+	{
+	  "resource": "wood_chips",
+	  "formula": "logs * 100"
+	}
   ],
   "internal_storage": {
-    "logs": 10.0,
-    "wood_chips": 1000.0
+	"logs": 10.0,
+	"wood_chips": 1000.0
   }
 }
