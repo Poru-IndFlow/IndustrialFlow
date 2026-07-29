@@ -23,6 +23,7 @@ var operating_rate := 1.0
 var actual_operating_rate := 0.0
 var ramp_up_seconds := 1.0
 var ramp_down_seconds := 1.0
+var performance_curve: Array[Dictionary] = []
 var cycle_progress := 0.0
 var graph_position := Vector2.ZERO
 var production_rates_per_second: Dictionary = {}
@@ -56,6 +57,9 @@ static func create(
 		0.001,
 		float(machine_definition.get("ramp_down_seconds", 1.0))
 	)
+	machine.performance_curve = _load_performance_curve(
+		machine_definition
+	)
 	machine.recipe = RecipeDefinition.from_machine_definition(machine_definition)
 
 	var capacities: Dictionary = {}
@@ -70,6 +74,40 @@ static func create(
 	)
 	return machine
 
+
+static func _load_performance_curve(
+	machine_definition: Dictionary
+) -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	var entries: Array = machine_definition.get(
+		"performance_curve",
+		[]
+	)
+
+	for value: Variant in entries:
+		if not value is Dictionary:
+			continue
+
+		var entry := value as Dictionary
+		result.append({
+			"speed": clampf(
+				float(entry.get("speed", 0.0)),
+				0.0,
+				1.5
+			),
+			"output": maxf(
+				float(entry.get("output", 0.0)),
+				0.0
+			)
+		})
+
+	result.sort_custom(
+		func(left: Dictionary, right: Dictionary) -> bool:
+			return float(left["speed"]) < float(right["speed"])
+	)
+	return result
+
+
 func tick(delta_seconds: float) -> void:
 	_update_actual_operating_rate(delta_seconds)
 
@@ -82,6 +120,51 @@ func tick(delta_seconds: float) -> void:
 		return
 
 	behaviour.tick(self, delta_seconds)
+
+
+func get_effective_production_rate() -> float:
+	if performance_curve.is_empty():
+		return actual_operating_rate
+
+	var first := performance_curve[0]
+
+	if actual_operating_rate <= float(first["speed"]):
+		return float(first["output"])
+
+	for index: int in range(1, performance_curve.size()):
+		var left := performance_curve[index - 1]
+		var right := performance_curve[index]
+		var right_speed := float(right["speed"])
+
+		if actual_operating_rate > right_speed:
+			continue
+
+		var left_speed := float(left["speed"])
+		var span := right_speed - left_speed
+
+		if span <= 0.0:
+			return float(right["output"])
+
+		var weight := (
+			(actual_operating_rate - left_speed) / span
+		)
+		return lerpf(
+			float(left["output"]),
+			float(right["output"]),
+			weight
+		)
+
+	return float(performance_curve.back()["output"])
+
+
+func get_production_efficiency() -> float:
+	if actual_operating_rate <= 0.0:
+		return 0.0
+
+	return (
+		get_effective_production_rate()
+		/ actual_operating_rate
+	)
 
 func set_state(new_state: State) -> void:
 	if state == new_state:

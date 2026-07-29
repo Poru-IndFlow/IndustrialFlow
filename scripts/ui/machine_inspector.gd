@@ -15,6 +15,8 @@ var connection_operation_section: VBoxContainer
 var enabled_check_box: CheckBox
 var operating_rate_spin_box: SpinBox
 var actual_rate_value_label: Label
+var effective_rate_value_label: Label
+var efficiency_value_label: Label
 var connection_enabled_check_box: CheckBox
 var connection_capacity_spin_box: SpinBox
 var input_title: Label
@@ -95,6 +97,24 @@ func _ready() -> void:
 		actual_rate_row
 	)
 	operation_section.add_child(actual_rate_row)
+
+	var effective_rate_row := UIWidgets.create_labeled_value(
+		"Effective output",
+		"0%"
+	)
+	effective_rate_value_label = UIWidgets.get_value_label(
+		effective_rate_row
+	)
+	operation_section.add_child(effective_rate_row)
+
+	var efficiency_row := UIWidgets.create_labeled_value(
+		"Speed efficiency",
+		"—"
+	)
+	efficiency_value_label = UIWidgets.get_value_label(
+		efficiency_row
+	)
+	operation_section.add_child(efficiency_row)
 
 	operation_section.add_child(HSeparator.new())
 
@@ -317,7 +337,7 @@ func _on_machine_changed(machine: MachineModel) -> void:
 
 func _on_machine_performance_changed(machine: MachineModel) -> void:
 	if machine == selected_machine:
-		_update_actual_rate_label()
+		_update_performance_labels()
 
 
 func _on_machine_removed(machine_id: String) -> void:
@@ -375,6 +395,8 @@ func _refresh() -> void:
 		operating_rate_spin_box.value = 0.0
 		operating_rate_spin_box.editable = false
 		actual_rate_value_label.text = "0%"
+		effective_rate_value_label.text = "0%"
+		efficiency_value_label.text = "—"
 		updating_controls = false
 		UIWidgets.update_status_badge(
 			state_badge,
@@ -402,7 +424,7 @@ func _refresh() -> void:
 	operating_rate_spin_box.value = (
 		selected_machine.operating_rate * 100.0
 	)
-	_update_actual_rate_label()
+	_update_performance_labels()
 	updating_controls = false
 	UIWidgets.update_status_badge(
 		state_badge,
@@ -421,17 +443,32 @@ func _refresh() -> void:
 	_populate_inventory()
 
 
-func _update_actual_rate_label() -> void:
-	if actual_rate_value_label == null:
+func _update_performance_labels() -> void:
+	if (
+		actual_rate_value_label == null
+		or effective_rate_value_label == null
+		or efficiency_value_label == null
+	):
 		return
 
 	if selected_machine == null:
 		actual_rate_value_label.text = "0%"
+		effective_rate_value_label.text = "0%"
+		efficiency_value_label.text = "—"
 		return
 
 	actual_rate_value_label.text = "%.0f%%" % (
 		selected_machine.actual_operating_rate * 100.0
 	)
+	effective_rate_value_label.text = "%.0f%%" % (
+		selected_machine.get_effective_production_rate() * 100.0
+	)
+	if selected_machine.actual_operating_rate > 0.0:
+		efficiency_value_label.text = "%.0f%%" % (
+			selected_machine.get_production_efficiency() * 100.0
+		)
+	else:
+		efficiency_value_label.text = "—"
 
 
 func _refresh_connection() -> void:

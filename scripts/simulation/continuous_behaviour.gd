@@ -15,7 +15,7 @@ func tick(machine: MachineModel, delta_seconds: float) -> void:
 
 	machine.set_state(MachineModel.State.RUNNING)
 	machine.cycle_progress += (
-		delta_seconds * machine.actual_operating_rate
+		delta_seconds * machine.get_effective_production_rate()
 	)
 
 	if machine.cycle_progress < machine.recipe.cycle_time:
