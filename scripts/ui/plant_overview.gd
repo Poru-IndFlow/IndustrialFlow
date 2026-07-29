@@ -70,6 +70,7 @@ func _connect_factory_events() -> void:
 		factory.event_bus.connection_added,
 		factory.event_bus.connection_removed,
 		factory.event_bus.connection_flow_changed,
+		factory.event_bus.connection_settings_changed,
 		factory.event_bus.machine_state_changed,
 		factory.event_bus.machine_inventory_changed,
 		factory.event_bus.machine_production_changed
@@ -91,6 +92,7 @@ func _disconnect_factory_events() -> void:
 		factory.event_bus.connection_added,
 		factory.event_bus.connection_removed,
 		factory.event_bus.connection_flow_changed,
+		factory.event_bus.connection_settings_changed,
 		factory.event_bus.machine_state_changed,
 		factory.event_bus.machine_inventory_changed,
 		factory.event_bus.machine_production_changed

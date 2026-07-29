@@ -50,6 +50,7 @@ func _ready() -> void:
 	factory_graph.bind_refresh_manager(refresh_manager)
 	factory_graph.bind_history(editor_history)
 	machine_inspector.bind_refresh_manager(refresh_manager)
+	machine_inspector.bind_history(editor_history)
 	plant_overview.bind_refresh_manager(refresh_manager)
 	plant_overview.machine_requested.connect(
 		_on_overview_machine_requested

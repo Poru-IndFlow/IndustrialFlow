@@ -55,6 +55,32 @@ func tick(delta_seconds: float) -> float:
 	return accepted
 
 
+func set_enabled(value: bool) -> void:
+	if enabled == value:
+		return
+
+	enabled = value
+
+	if from_machine != null and from_machine.event_bus != null:
+		from_machine.event_bus.connection_settings_changed.emit(
+			self
+		)
+
+
+func set_capacity_per_second(value: float) -> void:
+	var new_capacity := clampf(value, 0.05, 10.0)
+
+	if is_equal_approx(capacity_per_second, new_capacity):
+		return
+
+	capacity_per_second = new_capacity
+
+	if from_machine != null and from_machine.event_bus != null:
+		from_machine.event_bus.connection_settings_changed.emit(
+			self
+		)
+
+
 func _update_flow_telemetry(
 	transferred_amount: float,
 	delta_seconds: float
