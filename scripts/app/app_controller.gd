@@ -76,6 +76,9 @@ func _ready() -> void:
 	factory_graph.machine_selected.connect(
 		_on_machine_selected
 	)
+	factory_graph.connection_selected.connect(
+		_on_connection_selected
+	)
 	factory_graph.selection_changed.connect(
 		_on_selection_changed
 	)
@@ -123,6 +126,10 @@ func _on_machine_requested(definition_id: String) -> void:
 
 func _on_machine_selected(machine: MachineModel) -> void:
 	machine_inspector.show_machine(machine)
+
+
+func _on_connection_selected(connection: ConnectionModel) -> void:
+	machine_inspector.show_connection(connection)
 
 
 func _on_overview_machine_requested(machine_id: String) -> void:

@@ -3,13 +3,18 @@ extends DockPanel
 
 var factory: FactoryModel
 var selected_machine: MachineModel
+var selected_connection: ConnectionModel
 var refresh_manager: RefreshManager
 
 var name_label: Label
 var id_label: Label
 var state_badge: Label
+var operation_section: VBoxContainer
 var enabled_check_box: CheckBox
 var operating_rate_spin_box: SpinBox
+var input_title: Label
+var output_title: Label
+var inventory_title: Label
 var input_list: VBoxContainer
 var output_list: VBoxContainer
 var inventory_list: VBoxContainer
@@ -45,18 +50,21 @@ func _ready() -> void:
 
 	root.add_child(HSeparator.new())
 
+	operation_section = VBoxContainer.new()
+	root.add_child(operation_section)
+
 	var operation_title := UIWidgets.create_section_header(
 		"Operation"
 	)
-	root.add_child(operation_title)
+	operation_section.add_child(operation_title)
 
 	enabled_check_box = CheckBox.new()
 	enabled_check_box.text = "Enabled"
 	enabled_check_box.toggled.connect(_on_enabled_toggled)
-	root.add_child(enabled_check_box)
+	operation_section.add_child(enabled_check_box)
 
 	var rate_row := HBoxContainer.new()
-	root.add_child(rate_row)
+	operation_section.add_child(rate_row)
 
 	var rate_label := Label.new()
 	rate_label.text = "Operating rate"
@@ -74,9 +82,9 @@ func _ready() -> void:
 	)
 	rate_row.add_child(operating_rate_spin_box)
 
-	root.add_child(HSeparator.new())
+	operation_section.add_child(HSeparator.new())
 
-	var input_title := UIWidgets.create_section_header("Inputs")
+	input_title = UIWidgets.create_section_header("Inputs")
 	root.add_child(input_title)
 
 	input_list = VBoxContainer.new()
@@ -84,7 +92,7 @@ func _ready() -> void:
 
 	root.add_child(HSeparator.new())
 
-	var output_title := UIWidgets.create_section_header("Outputs")
+	output_title = UIWidgets.create_section_header("Outputs")
 	root.add_child(output_title)
 
 	output_list = VBoxContainer.new()
@@ -92,7 +100,7 @@ func _ready() -> void:
 
 	root.add_child(HSeparator.new())
 
-	var inventory_title := UIWidgets.create_section_header("Inventory")
+	inventory_title = UIWidgets.create_section_header("Inventory")
 	root.add_child(inventory_title)
 
 	inventory_list = VBoxContainer.new()
@@ -109,6 +117,7 @@ func bind_factory(new_factory: FactoryModel) -> void:
 
 	factory = new_factory
 	selected_machine = null
+	selected_connection = null
 	_request_refresh()
 
 	if factory == null:
@@ -123,6 +132,12 @@ func bind_factory(new_factory: FactoryModel) -> void:
 	factory.event_bus.machine_settings_changed.connect(
 		_on_machine_changed
 	)
+	factory.event_bus.connection_flow_changed.connect(
+		_on_connection_changed
+	)
+	factory.event_bus.connection_removed.connect(
+		_on_connection_removed
+	)
 	factory.event_bus.machine_removed.connect(
 		_on_machine_removed
 	)
@@ -130,6 +145,13 @@ func bind_factory(new_factory: FactoryModel) -> void:
 
 func show_machine(machine: MachineModel) -> void:
 	selected_machine = machine
+	selected_connection = null
+	_request_refresh()
+
+
+func show_connection(connection: ConnectionModel) -> void:
+	selected_connection = connection
+	selected_machine = null
 	_request_refresh()
 
 
@@ -149,6 +171,14 @@ func _disconnect_factory_signals() -> void:
 	var removed_callback := Callable(
 		self,
 		"_on_machine_removed"
+	)
+	var connection_callback := Callable(
+		self,
+		"_on_connection_changed"
+	)
+	var connection_removed_callback := Callable(
+		self,
+		"_on_connection_removed"
 	)
 
 	if factory.event_bus.machine_state_changed.is_connected(
@@ -179,6 +209,20 @@ func _disconnect_factory_signals() -> void:
 			removed_callback
 		)
 
+	if factory.event_bus.connection_flow_changed.is_connected(
+		connection_callback
+	):
+		factory.event_bus.connection_flow_changed.disconnect(
+			connection_callback
+		)
+
+	if factory.event_bus.connection_removed.is_connected(
+		connection_removed_callback
+	):
+		factory.event_bus.connection_removed.disconnect(
+			connection_removed_callback
+		)
+
 
 func _on_machine_changed(machine: MachineModel) -> void:
 	if machine == selected_machine:
@@ -191,6 +235,17 @@ func _on_machine_removed(machine_id: String) -> void:
 		and selected_machine.instance_id == machine_id
 	):
 		selected_machine = null
+		_request_refresh()
+
+
+func _on_connection_changed(connection: ConnectionModel) -> void:
+	if connection == selected_connection:
+		_request_refresh()
+
+
+func _on_connection_removed(connection: ConnectionModel) -> void:
+	if connection == selected_connection:
+		selected_connection = null
 		_request_refresh()
 
 
@@ -210,7 +265,16 @@ func _refresh() -> void:
 	UIWidgets.clear_container(output_list)
 	UIWidgets.clear_container(inventory_list)
 
+	if selected_connection != null:
+		_refresh_connection()
+		return
+
 	if selected_machine == null:
+		set_dock_title("Inspector")
+		operation_section.visible = false
+		input_title.text = "Inputs"
+		output_title.text = "Outputs"
+		inventory_title.text = "Inventory"
 		updating_controls = true
 		name_label.text = "No machine selected"
 		id_label.text = ""
@@ -230,6 +294,11 @@ func _refresh() -> void:
 		_add_empty_label(inventory_list)
 		return
 
+	set_dock_title("Machine Inspector")
+	operation_section.visible = true
+	input_title.text = "Inputs"
+	output_title.text = "Outputs"
+	inventory_title.text = "Inventory"
 	name_label.text = selected_machine.display_name
 	id_label.text = "ID: %s" % selected_machine.instance_id
 	updating_controls = true
@@ -255,6 +324,79 @@ func _refresh() -> void:
 		selected_machine.definition.get("outputs", [])
 	)
 	_populate_inventory()
+
+
+func _refresh_connection() -> void:
+	set_dock_title("Connection Inspector")
+	operation_section.visible = false
+	input_title.text = "Endpoints"
+	output_title.text = "Flow"
+	inventory_title.text = "Configuration"
+
+	var source := selected_connection.from_machine
+	var destination := selected_connection.to_machine
+	var resource_id := selected_connection.resource_id
+	var unit := ResourceRegistry.get_unit(resource_id)
+
+	name_label.text = ResourceRegistry.get_display_name(
+		resource_id
+	)
+	id_label.text = "%s → %s" % [
+		source.display_name,
+		destination.display_name
+	]
+	UIWidgets.update_status_badge(
+		state_badge,
+		"Enabled" if selected_connection.enabled else "Disabled",
+		(
+			ThemeManager.COLOR_SUCCESS
+			if selected_connection.enabled
+			else ThemeManager.COLOR_TEXT_MUTED
+		)
+	)
+
+	input_list.add_child(
+		UIWidgets.create_labeled_value(
+			"Source",
+			source.display_name
+		)
+	)
+	input_list.add_child(
+		UIWidgets.create_labeled_value(
+			"Destination",
+			destination.display_name
+		)
+	)
+	output_list.add_child(
+		UIWidgets.create_labeled_value(
+			"Resource",
+			ResourceRegistry.get_display_name(resource_id)
+		)
+	)
+	output_list.add_child(
+		UIWidgets.create_labeled_value(
+			"Current rate",
+			"%.2f %s/s" % [
+				selected_connection.current_rate_per_second,
+				unit
+			]
+		)
+	)
+	inventory_list.add_child(
+		UIWidgets.create_labeled_value(
+			"Capacity",
+			"%.2f %s/s" % [
+				selected_connection.capacity_per_second,
+				unit
+			]
+		)
+	)
+	inventory_list.add_child(
+		UIWidgets.create_labeled_value(
+			"Enabled",
+			"Yes" if selected_connection.enabled else "No"
+		)
+	)
 
 
 func _on_enabled_toggled(enabled: bool) -> void:
