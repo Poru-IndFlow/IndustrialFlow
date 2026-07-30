@@ -17,6 +17,8 @@ var operating_rate_spin_box: SpinBox
 var actual_rate_value_label: Label
 var effective_rate_value_label: Label
 var efficiency_value_label: Label
+var power_demand_value_label: Label
+var power_mode_value_label: Label
 var connection_enabled_check_box: CheckBox
 var connection_capacity_spin_box: SpinBox
 var input_title: Label
@@ -115,6 +117,24 @@ func _ready() -> void:
 		efficiency_row
 	)
 	operation_section.add_child(efficiency_row)
+
+	var power_demand_row := UIWidgets.create_labeled_value(
+		"Power demand",
+		"0.00 PU"
+	)
+	power_demand_value_label = UIWidgets.get_value_label(
+		power_demand_row
+	)
+	operation_section.add_child(power_demand_row)
+
+	var power_mode_row := UIWidgets.create_labeled_value(
+		"Power mode",
+		"Off"
+	)
+	power_mode_value_label = UIWidgets.get_value_label(
+		power_mode_row
+	)
+	operation_section.add_child(power_mode_row)
 
 	operation_section.add_child(HSeparator.new())
 
@@ -217,6 +237,9 @@ func bind_factory(new_factory: FactoryModel) -> void:
 	factory.event_bus.machine_performance_changed.connect(
 		_on_machine_performance_changed
 	)
+	factory.event_bus.machine_power_changed.connect(
+		_on_machine_power_changed
+	)
 	factory.event_bus.connection_flow_changed.connect(
 		_on_connection_changed
 	)
@@ -264,6 +287,10 @@ func _disconnect_factory_signals() -> void:
 		self,
 		"_on_machine_performance_changed"
 	)
+	var power_callback := Callable(
+		self,
+		"_on_machine_power_changed"
+	)
 	var connection_callback := Callable(
 		self,
 		"_on_connection_changed"
@@ -299,6 +326,13 @@ func _disconnect_factory_signals() -> void:
 	):
 		factory.event_bus.machine_performance_changed.disconnect(
 			performance_callback
+		)
+
+	if factory.event_bus.machine_power_changed.is_connected(
+		power_callback
+	):
+		factory.event_bus.machine_power_changed.disconnect(
+			power_callback
 		)
 
 	if factory.event_bus.machine_removed.is_connected(
@@ -338,6 +372,11 @@ func _on_machine_changed(machine: MachineModel) -> void:
 func _on_machine_performance_changed(machine: MachineModel) -> void:
 	if machine == selected_machine:
 		_update_performance_labels()
+
+
+func _on_machine_power_changed(machine: MachineModel) -> void:
+	if machine == selected_machine:
+		_update_power_labels()
 
 
 func _on_machine_removed(machine_id: String) -> void:
@@ -397,6 +436,8 @@ func _refresh() -> void:
 		actual_rate_value_label.text = "0%"
 		effective_rate_value_label.text = "0%"
 		efficiency_value_label.text = "—"
+		power_demand_value_label.text = "0.00 PU"
+		power_mode_value_label.text = "Off"
 		updating_controls = false
 		UIWidgets.update_status_badge(
 			state_badge,
@@ -425,6 +466,7 @@ func _refresh() -> void:
 		selected_machine.operating_rate * 100.0
 	)
 	_update_performance_labels()
+	_update_power_labels()
 	updating_controls = false
 	UIWidgets.update_status_badge(
 		state_badge,
@@ -463,12 +505,31 @@ func _update_performance_labels() -> void:
 	effective_rate_value_label.text = "%.0f%%" % (
 		selected_machine.get_effective_production_rate() * 100.0
 	)
+
 	if selected_machine.actual_operating_rate > 0.0:
 		efficiency_value_label.text = "%.0f%%" % (
 			selected_machine.get_production_efficiency() * 100.0
 		)
 	else:
 		efficiency_value_label.text = "—"
+
+
+func _update_power_labels() -> void:
+	if (
+		power_demand_value_label == null
+		or power_mode_value_label == null
+	):
+		return
+
+	if selected_machine == null:
+		power_demand_value_label.text = "0.00 PU"
+		power_mode_value_label.text = "Off"
+		return
+
+	power_demand_value_label.text = "%.2f PU" % (
+		selected_machine.power_demand
+	)
+	power_mode_value_label.text = selected_machine.get_power_mode()
 
 
 func _refresh_connection() -> void:

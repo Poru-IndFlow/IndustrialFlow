@@ -26,6 +26,7 @@ var production_signature := ""
 @onready var blocked_card := %BlockedCard as KpiCard
 @onready var disabled_card := %DisabledCard as KpiCard
 @onready var connections_card := %ConnectionsCard as KpiCard
+@onready var power_card := %PowerCard as KpiCard
 @onready var alert_count_label := %AlertCountLabel as Label
 @onready var alerts_list := %AlertsList as VBoxContainer
 @onready var throughput_list := %ThroughputList as VBoxContainer
@@ -41,6 +42,7 @@ func _ready() -> void:
 	blocked_card.set_accent(ThemeManager.COLOR_WARNING)
 	disabled_card.set_accent(ThemeManager.COLOR_DANGER)
 	connections_card.set_accent(ThemeManager.COLOR_ACCENT)
+	power_card.set_accent(ThemeManager.COLOR_WARNING)
 	_request_refresh()
 
 
@@ -73,7 +75,8 @@ func _connect_factory_events() -> void:
 		factory.event_bus.connection_settings_changed,
 		factory.event_bus.machine_state_changed,
 		factory.event_bus.machine_inventory_changed,
-		factory.event_bus.machine_production_changed
+		factory.event_bus.machine_production_changed,
+		factory.event_bus.machine_power_changed
 	]
 
 	for factory_signal: Signal in signals:
@@ -95,7 +98,8 @@ func _disconnect_factory_events() -> void:
 		factory.event_bus.connection_settings_changed,
 		factory.event_bus.machine_state_changed,
 		factory.event_bus.machine_inventory_changed,
-		factory.event_bus.machine_production_changed
+		factory.event_bus.machine_production_changed,
+		factory.event_bus.machine_power_changed
 	]
 
 	for factory_signal: Signal in signals:
@@ -128,6 +132,7 @@ func _refresh() -> void:
 	var blocked := 0
 	var disabled := 0
 	var connection_count := 0
+	var total_power := 0.0
 	var inventory_totals: Dictionary = {}
 
 	if factory != null:
@@ -139,6 +144,8 @@ func _refresh() -> void:
 
 			if machine == null:
 				continue
+
+			total_power += machine.power_demand
 
 			match machine.state:
 				MachineModel.State.RUNNING:
@@ -163,6 +170,7 @@ func _refresh() -> void:
 	blocked_card.set_value(str(blocked))
 	disabled_card.set_value(str(disabled))
 	connections_card.set_value(str(connection_count))
+	power_card.set_value("%.2f PU" % total_power)
 
 	_update_status(total, running, blocked, disabled)
 	_update_alerts()

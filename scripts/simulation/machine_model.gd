@@ -24,6 +24,9 @@ var actual_operating_rate := 0.0
 var ramp_up_seconds := 1.0
 var ramp_down_seconds := 1.0
 var performance_curve: Array[Dictionary] = []
+var power_curve: Array[Dictionary] = []
+var idle_power_ratio := 0.15
+var power_demand := 0.0
 var cycle_progress := 0.0
 var graph_position := Vector2.ZERO
 var production_rates_per_second: Dictionary = {}
@@ -60,6 +63,16 @@ static func create(
 	machine.performance_curve = _load_performance_curve(
 		machine_definition
 	)
+	machine.power_curve = _load_curve(
+		machine_definition,
+		"power_curve",
+		"power"
+	)
+	machine.idle_power_ratio = clampf(
+		float(machine_definition.get("idle_power_ratio", 0.15)),
+		0.0,
+		1.0
+	)
 	machine.recipe = RecipeDefinition.from_machine_definition(machine_definition)
 
 	var capacities: Dictionary = {}
@@ -78,9 +91,21 @@ static func create(
 static func _load_performance_curve(
 	machine_definition: Dictionary
 ) -> Array[Dictionary]:
+	return _load_curve(
+		machine_definition,
+		"performance_curve",
+		"output"
+	)
+
+
+static func _load_curve(
+	machine_definition: Dictionary,
+	definition_key: String,
+	value_key: String
+) -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
 	var entries: Array = machine_definition.get(
-		"performance_curve",
+		definition_key,
 		[]
 	)
 
@@ -89,17 +114,18 @@ static func _load_performance_curve(
 			continue
 
 		var entry := value as Dictionary
-		result.append({
+		var point: Dictionary = {
 			"speed": clampf(
 				float(entry.get("speed", 0.0)),
 				0.0,
 				1.5
-			),
-			"output": maxf(
-				float(entry.get("output", 0.0)),
-				0.0
 			)
-		})
+		}
+		point[value_key] = maxf(
+			float(entry.get(value_key, 0.0)),
+			0.0
+		)
+		result.append(point)
 
 	result.sort_custom(
 		func(left: Dictionary, right: Dictionary) -> bool:
@@ -113,13 +139,16 @@ func tick(delta_seconds: float) -> void:
 
 	if not enabled:
 		set_state(State.DISABLED)
+		_update_power_demand()
 		return
 
 	if actual_operating_rate <= 0.0:
 		set_state(State.IDLE)
+		_update_power_demand()
 		return
 
 	behaviour.tick(self, delta_seconds)
+	_update_power_demand()
 
 
 func get_effective_production_rate() -> float:
@@ -165,6 +194,68 @@ func get_production_efficiency() -> float:
 		get_effective_production_rate()
 		/ actual_operating_rate
 	)
+
+
+func get_active_power_demand() -> float:
+	if power_curve.is_empty() or actual_operating_rate <= 0.0:
+		return 0.0
+
+	var first := power_curve[0]
+
+	if actual_operating_rate <= float(first["speed"]):
+		return float(first["power"])
+
+	for index: int in range(1, power_curve.size()):
+		var left := power_curve[index - 1]
+		var right := power_curve[index]
+		var right_speed := float(right["speed"])
+
+		if actual_operating_rate > right_speed:
+			continue
+
+		var left_speed := float(left["speed"])
+		var span := right_speed - left_speed
+
+		if span <= 0.0:
+			return float(right["power"])
+
+		var weight := (
+			(actual_operating_rate - left_speed) / span
+		)
+		return lerpf(
+			float(left["power"]),
+			float(right["power"]),
+			weight
+		)
+
+	return float(power_curve.back()["power"])
+
+
+func get_power_mode() -> String:
+	if not enabled or actual_operating_rate <= 0.0:
+		return "Off"
+
+	return "Active" if state == State.RUNNING else "Idle at speed"
+
+
+func _update_power_demand() -> void:
+	var active_demand := get_active_power_demand()
+	var new_demand := 0.0
+
+	if enabled and actual_operating_rate > 0.0:
+		new_demand = (
+			active_demand
+			if state == State.RUNNING
+			else active_demand * idle_power_ratio
+		)
+
+	if is_equal_approx(power_demand, new_demand):
+		return
+
+	power_demand = new_demand
+
+	if event_bus != null:
+		event_bus.machine_power_changed.emit(self)
 
 func set_state(new_state: State) -> void:
 	if state == new_state:
