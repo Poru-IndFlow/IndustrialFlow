@@ -22,7 +22,11 @@ var power_mode_value_label: Label
 var control_section: VBoxContainer
 var control_mode_option: OptionButton
 var inventory_setpoint_spin_box: SpinBox
+var controller_kp_spin_box: SpinBox
+var controller_ki_spin_box: SpinBox
 var controlled_inventory_value_label: Label
+var controller_error_value_label: Label
+var controller_integral_value_label: Label
 var controller_output_value_label: Label
 var connection_enabled_check_box: CheckBox
 var connection_capacity_spin_box: SpinBox
@@ -191,6 +195,42 @@ func _ready() -> void:
 	)
 	setpoint_row.add_child(inventory_setpoint_spin_box)
 
+	var kp_row := HBoxContainer.new()
+	control_section.add_child(kp_row)
+
+	var kp_label := Label.new()
+	kp_label.text = "Proportional gain"
+	kp_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	kp_row.add_child(kp_label)
+
+	controller_kp_spin_box = SpinBox.new()
+	controller_kp_spin_box.custom_minimum_size = Vector2(135, 0)
+	controller_kp_spin_box.min_value = 0.0
+	controller_kp_spin_box.max_value = 10.0
+	controller_kp_spin_box.step = 0.05
+	controller_kp_spin_box.value_changed.connect(
+		_on_controller_kp_changed
+	)
+	kp_row.add_child(controller_kp_spin_box)
+
+	var ki_row := HBoxContainer.new()
+	control_section.add_child(ki_row)
+
+	var ki_label := Label.new()
+	ki_label.text = "Integral gain"
+	ki_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ki_row.add_child(ki_label)
+
+	controller_ki_spin_box = SpinBox.new()
+	controller_ki_spin_box.custom_minimum_size = Vector2(135, 0)
+	controller_ki_spin_box.min_value = 0.0
+	controller_ki_spin_box.max_value = 1.0
+	controller_ki_spin_box.step = 0.001
+	controller_ki_spin_box.value_changed.connect(
+		_on_controller_ki_changed
+	)
+	ki_row.add_child(controller_ki_spin_box)
+
 	var controlled_inventory_row := UIWidgets.create_labeled_value(
 		"Controlled inventory",
 		"0"
@@ -199,6 +239,24 @@ func _ready() -> void:
 		controlled_inventory_row
 	)
 	control_section.add_child(controlled_inventory_row)
+
+	var controller_error_row := UIWidgets.create_labeled_value(
+		"Control error",
+		"0"
+	)
+	controller_error_value_label = UIWidgets.get_value_label(
+		controller_error_row
+	)
+	control_section.add_child(controller_error_row)
+
+	var controller_integral_row := UIWidgets.create_labeled_value(
+		"Integral contribution",
+		"0%"
+	)
+	controller_integral_value_label = UIWidgets.get_value_label(
+		controller_integral_row
+	)
+	control_section.add_child(controller_integral_row)
 
 	var controller_output_row := UIWidgets.create_labeled_value(
 		"Controller output",
@@ -572,6 +630,8 @@ func _refresh() -> void:
 	inventory_setpoint_spin_box.value = (
 		selected_machine.inventory_setpoint
 	)
+	controller_kp_spin_box.value = selected_machine.controller_kp
+	controller_ki_spin_box.value = selected_machine.controller_ki
 	inventory_setpoint_spin_box.suffix = " %s" % (
 		ResourceRegistry.get_unit(
 			selected_machine.control_resource
@@ -648,12 +708,16 @@ func _update_power_labels() -> void:
 func _update_control_labels() -> void:
 	if (
 		controlled_inventory_value_label == null
+		or controller_error_value_label == null
+		or controller_integral_value_label == null
 		or controller_output_value_label == null
 	):
 		return
 
 	if selected_machine == null:
 		controlled_inventory_value_label.text = "0"
+		controller_error_value_label.text = "0"
+		controller_integral_value_label.text = "0%"
 		controller_output_value_label.text = "0%"
 		return
 
@@ -664,6 +728,13 @@ func _update_control_labels() -> void:
 		selected_machine.controlled_inventory_amount,
 		unit
 	]
+	controller_error_value_label.text = "%.1f %s" % [
+		selected_machine.controller_error,
+		unit
+	]
+	controller_integral_value_label.text = "%.0f%%" % (
+		selected_machine.controller_integral * 100.0
+	)
 	controller_output_value_label.text = "%.0f%%" % (
 		selected_machine.operating_rate * 100.0
 	)
@@ -848,6 +919,38 @@ func _on_inventory_setpoint_changed(value: float) -> void:
 		selected_machine.set_inventory_setpoint.bind(
 			previous_value
 		)
+	)
+
+
+func _on_controller_kp_changed(value: float) -> void:
+	if updating_controls or selected_machine == null:
+		return
+
+	var previous_value := selected_machine.controller_kp
+
+	if is_equal_approx(previous_value, value):
+		return
+
+	_execute_setting_action(
+		"set proportional gain",
+		selected_machine.set_controller_kp.bind(value),
+		selected_machine.set_controller_kp.bind(previous_value)
+	)
+
+
+func _on_controller_ki_changed(value: float) -> void:
+	if updating_controls or selected_machine == null:
+		return
+
+	var previous_value := selected_machine.controller_ki
+
+	if is_equal_approx(previous_value, value):
+		return
+
+	_execute_setting_action(
+		"set integral gain",
+		selected_machine.set_controller_ki.bind(value),
+		selected_machine.set_controller_ki.bind(previous_value)
 	)
 
 

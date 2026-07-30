@@ -119,7 +119,7 @@ func find_connection(
 	return null
 
 func tick(delta_seconds: float) -> void:
-	_update_inventory_controllers()
+	_update_inventory_controllers(delta_seconds)
 
 	for connection: ConnectionModel in connections:
 		connection.tick(delta_seconds)
@@ -134,7 +134,7 @@ func tick(delta_seconds: float) -> void:
 		machine.advance_production_telemetry(delta_seconds)
 
 
-func _update_inventory_controllers() -> void:
+func _update_inventory_controllers(delta_seconds: float) -> void:
 	for value: Variant in machines.values():
 		var machine := value as MachineModel
 
@@ -157,4 +157,7 @@ func _update_inventory_controllers() -> void:
 				)
 			)
 
-		machine.update_inventory_controller(downstream_inventory)
+		machine.update_inventory_controller(
+			downstream_inventory,
+			delta_seconds
+		)
