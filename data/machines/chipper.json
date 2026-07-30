@@ -3,21 +3,64 @@
   "display_name": "Chipper",
   "category": "processing",
   "processing_mode": "continuous",
+  "ramp_up_seconds": 3.0,
+  "ramp_down_seconds": 2.0,
+  "performance_curve": [
+	{
+	  "speed": 0.0,
+	  "output": 0.0
+	},
+	{
+	  "speed": 0.2,
+	  "output": 0.1
+	},
+	{
+	  "speed": 0.5,
+	  "output": 0.3
+	},
+	{
+	  "speed": 1.0,
+	  "output": 1.0
+	},
+	{
+	  "speed": 1.5,
+	  "output": 1.3
+	}
+  ],
+  "idle_power_ratio": 0.15,
+  "power_curve": [
+	{
+	  "speed": 0.0,
+	  "power": 0.0
+	},
+	{
+	  "speed": 0.1,
+	  "power": 0.3
+	},
+	{
+	  "speed": 1.0,
+	  "power": 1.0
+	},
+	{
+	  "speed": 1.5,
+	  "power": 2.0
+	}
+  ],
   "cycle_time": 4.0,
   "inputs": [
-    {
-      "resource": "logs",
-      "amount": 1.0
-    }
+	{
+	  "resource": "logs",
+	  "amount": 1.0
+	}
   ],
   "outputs": [
-    {
-      "resource": "wood_chips",
-      "formula": "logs * 100"
-    }
+	{
+	  "resource": "wood_chips",
+	  "formula": "logs * 100"
+	}
   ],
   "internal_storage": {
-    "logs": 10.0,
-    "wood_chips": 1000.0
+	"logs": 10.0,
+	"wood_chips": 1000.0
   }
 }

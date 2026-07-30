@@ -3,6 +3,8 @@
   "display_name": "Water Utility",
   "category": "utility",
   "processing_mode": "supplier",
+  "ramp_up_seconds": 1.0,
+  "ramp_down_seconds": 1.0,
   "cycle_time": 1.0,
   "inputs": [],
   "outputs": [
