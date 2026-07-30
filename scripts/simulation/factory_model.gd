@@ -119,6 +119,8 @@ func find_connection(
 	return null
 
 func tick(delta_seconds: float) -> void:
+	_update_inventory_controllers()
+
 	for connection: ConnectionModel in connections:
 		connection.tick(delta_seconds)
 
@@ -130,3 +132,29 @@ func tick(delta_seconds: float) -> void:
 
 		machine.tick(delta_seconds)
 		machine.advance_production_telemetry(delta_seconds)
+
+
+func _update_inventory_controllers() -> void:
+	for value: Variant in machines.values():
+		var machine := value as MachineModel
+
+		if machine == null or not machine.supports_inventory_control():
+			continue
+
+		var downstream_inventory := 0.0
+
+		for connection: ConnectionModel in connections:
+			if (
+				not connection.enabled
+				or connection.from_machine != machine
+				or connection.resource_id != machine.control_resource
+			):
+				continue
+
+			downstream_inventory += (
+				connection.to_machine.inventory.get_amount(
+					machine.control_resource
+				)
+			)
+
+		machine.update_inventory_controller(downstream_inventory)

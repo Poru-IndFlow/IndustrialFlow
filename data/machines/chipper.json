@@ -5,6 +5,9 @@
   "processing_mode": "continuous",
   "ramp_up_seconds": 3.0,
   "ramp_down_seconds": 2.0,
+  "control_resource": "wood_chips",
+  "inventory_setpoint": 5000.0,
+  "control_hysteresis": 0.1,
   "performance_curve": [
 	{
 	  "speed": 0.0,
