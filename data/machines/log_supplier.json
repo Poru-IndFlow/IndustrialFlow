@@ -3,6 +3,8 @@
   "display_name": "Log Supplier",
   "category": "supplier",
   "processing_mode": "supplier",
+  "purchase_cost": 500.0,
+  "salvage_ratio": 0.5,
   "ramp_up_seconds": 1.0,
   "ramp_down_seconds": 1.0,
   "cycle_time": 2.0,

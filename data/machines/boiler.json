@@ -3,6 +3,8 @@
   "display_name": "Boiler",
   "category": "utility",
   "processing_mode": "continuous",
+  "purchase_cost": 3000.0,
+  "salvage_ratio": 0.5,
   "ramp_up_seconds": 5.0,
   "ramp_down_seconds": 3.0,
   "wear_per_operating_hour": 0.6,

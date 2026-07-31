@@ -3,6 +3,7 @@ extends RefCounted
 
 const DEFAULT_STARTING_CASH := 10000.0
 const ECONOMY_WINDOW_SECONDS := 1.0
+const DEFAULT_SALVAGE_RATIO := 0.5
 
 var machines: Dictionary = {}
 var connections: Array[ConnectionModel] = []
@@ -85,6 +86,90 @@ func remove_machine(machine_id: String) -> bool:
 
 func get_machine(machine_id: String) -> MachineModel:
 	return machines.get(machine_id) as MachineModel
+
+
+func get_machine_purchase_cost(definition_id: String) -> float:
+	var definition := MachineRegistry.get_definition(definition_id)
+	return maxf(
+		0.0,
+		float(definition.get("purchase_cost", 0.0))
+	)
+
+
+func get_machine_salvage_value(machine: MachineModel) -> float:
+	if machine == null:
+		return 0.0
+
+	var purchase_cost := maxf(
+		0.0,
+		float(machine.definition.get("purchase_cost", 0.0))
+	)
+	var salvage_ratio := clampf(
+		float(
+			machine.definition.get(
+				"salvage_ratio",
+				DEFAULT_SALVAGE_RATIO
+			)
+		),
+		0.0,
+		1.0
+	)
+	return purchase_cost * salvage_ratio
+
+
+func can_afford_machine(definition_id: String) -> bool:
+	return cash_balance >= get_machine_purchase_cost(definition_id)
+
+
+func purchase_machine(machine: MachineModel) -> bool:
+	if machine == null or machines.has(machine.instance_id):
+		return false
+
+	var purchase_cost := get_machine_purchase_cost(
+		machine.definition_id
+	)
+
+	if not add_machine(machine):
+		return false
+
+	_apply_capital_expense(machine.instance_id, purchase_cost)
+	return true
+
+
+func reverse_machine_purchase(machine: MachineModel) -> bool:
+	if machine == null or not remove_machine(machine.instance_id):
+		return false
+
+	_reverse_capital_expense(
+		machine.instance_id,
+		get_machine_purchase_cost(machine.definition_id)
+	)
+	return true
+
+
+func salvage_machine(machine: MachineModel) -> bool:
+	if machine == null or not remove_machine(machine.instance_id):
+		return false
+
+	_apply_salvage_revenue(
+		machine.instance_id,
+		get_machine_salvage_value(machine)
+	)
+	return true
+
+
+func reverse_machine_salvage(machine: MachineModel) -> bool:
+	if machine == null or machines.has(machine.instance_id):
+		return false
+
+	if not add_machine(machine):
+		return false
+
+	_reverse_salvage_revenue(
+		machine.instance_id,
+		get_machine_salvage_value(machine)
+	)
+	return true
 
 func add_connection(connection: ConnectionModel) -> bool:
 	if connection == null:
@@ -361,6 +446,67 @@ func _record_expense(amount: float) -> void:
 	cash_balance -= amount
 	total_expenses += amount
 	_expenses_in_window += amount
+
+
+func _apply_capital_expense(machine_id: String, amount: float) -> void:
+	if amount <= 0.0:
+		return
+
+	cash_balance -= amount
+	total_expenses += amount
+	_adjust_machine_lifetime(machine_id, 0.0, amount)
+	_emit_economy_changed()
+
+
+func _reverse_capital_expense(machine_id: String, amount: float) -> void:
+	if amount <= 0.0:
+		return
+
+	cash_balance += amount
+	total_expenses = maxf(0.0, total_expenses - amount)
+	_adjust_machine_lifetime(machine_id, 0.0, -amount)
+	_emit_economy_changed()
+
+
+func _apply_salvage_revenue(machine_id: String, amount: float) -> void:
+	if amount <= 0.0:
+		return
+
+	cash_balance += amount
+	total_revenue += amount
+	_adjust_machine_lifetime(machine_id, amount, 0.0)
+	_emit_economy_changed()
+
+
+func _reverse_salvage_revenue(machine_id: String, amount: float) -> void:
+	if amount <= 0.0:
+		return
+
+	cash_balance -= amount
+	total_revenue = maxf(0.0, total_revenue - amount)
+	_adjust_machine_lifetime(machine_id, -amount, 0.0)
+	_emit_economy_changed()
+
+
+func _adjust_machine_lifetime(
+	machine_id: String,
+	revenue_delta: float,
+	expense_delta: float
+) -> void:
+	var account := _get_economy_account(machine_economy, machine_id)
+	account["total_revenue"] = maxf(
+		0.0,
+		float(account.get("total_revenue", 0.0)) + revenue_delta
+	)
+	account["total_expenses"] = maxf(
+		0.0,
+		float(account.get("total_expenses", 0.0)) + expense_delta
+	)
+
+
+func _emit_economy_changed() -> void:
+	if event_bus != null:
+		event_bus.economy_changed.emit(self)
 
 
 func _advance_economy_telemetry(delta_seconds: float) -> void:

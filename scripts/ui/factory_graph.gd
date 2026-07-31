@@ -4,7 +4,7 @@ extends GraphEdit
 signal machine_selected(machine: MachineModel)
 signal connection_selected(connection: ConnectionModel)
 signal selection_changed(selected_count: int)
-signal machines_deleted(deleted_count: int)
+signal machines_deleted(deleted_count: int, salvage_value: float)
 
 
 var factory: FactoryModel
@@ -95,9 +95,12 @@ func bind_factory(new_factory: FactoryModel) -> void:
 	_rebuild_connections()
 
 
-func request_machine(definition_id: String) -> void:
+func request_machine(definition_id: String) -> bool:
 	if factory == null:
-		return
+		return false
+
+	if not factory.can_afford_machine(definition_id):
+		return false
 
 	var position := scroll_offset + size * 0.5
 	var machine := factory.create_machine(definition_id, position)
@@ -105,9 +108,12 @@ func request_machine(definition_id: String) -> void:
 	if machine != null:
 		_execute_history_action(
 			"add %s" % machine.display_name,
-			_add_existing_machine.bind(machine),
-			_remove_machine.bind(machine.instance_id)
+			_purchase_existing_machine.bind(machine),
+			_reverse_machine_purchase.bind(machine)
 		)
+		return true
+
+	return false
 
 
 func delete_selected_machines() -> int:
@@ -598,6 +604,11 @@ func _delete_machine_ids(nodes: Array[StringName]) -> int:
 		return 0
 
 	var connections := _get_related_connections(machines)
+	var salvage_value := 0.0
+
+	for machine: MachineModel in machines:
+		salvage_value += factory.get_machine_salvage_value(machine)
+
 	var label := (
 		"delete machine"
 		if machines.size() == 1
@@ -613,7 +624,7 @@ func _delete_machine_ids(nodes: Array[StringName]) -> int:
 
 	if deleted_count > 0:
 		machine_selected.emit(null)
-		machines_deleted.emit(deleted_count)
+		machines_deleted.emit(deleted_count, salvage_value)
 		_request_selection_notification()
 
 	return deleted_count
@@ -640,7 +651,7 @@ func _get_related_connections(
 
 func _remove_machine_group(machines: Array[MachineModel]) -> void:
 	for machine: MachineModel in machines:
-		factory.remove_machine(machine.instance_id)
+		factory.salvage_machine(machine)
 
 
 func _restore_machine_group(
@@ -648,18 +659,18 @@ func _restore_machine_group(
 	connections: Array[ConnectionModel]
 ) -> void:
 	for machine: MachineModel in machines:
-		factory.add_machine(machine)
+		factory.reverse_machine_salvage(machine)
 
 	for connection: ConnectionModel in connections:
 		factory.add_connection(connection)
 
 
-func _add_existing_machine(machine: MachineModel) -> void:
-	factory.add_machine(machine)
+func _purchase_existing_machine(machine: MachineModel) -> void:
+	factory.purchase_machine(machine)
 
 
-func _remove_machine(machine_id: String) -> void:
-	factory.remove_machine(machine_id)
+func _reverse_machine_purchase(machine: MachineModel) -> void:
+	factory.reverse_machine_purchase(machine)
 
 
 func _add_existing_connection(connection: ConnectionModel) -> void:
