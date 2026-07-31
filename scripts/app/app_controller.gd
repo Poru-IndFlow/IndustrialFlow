@@ -13,6 +13,10 @@ extends Node
 	"../RootVBox/Workspace/EditorSplit/WorkspaceTabs/Plant Overview"
 ) as PlantOverview
 
+@onready var controller_trends := get_node(
+	"../RootVBox/Workspace/EditorSplit/WorkspaceTabs/Controller Trends"
+) as ControllerTrends
+
 @onready var workspace_tabs := get_node(
 	"../RootVBox/Workspace/EditorSplit/WorkspaceTabs"
 ) as TabContainer
@@ -109,6 +113,7 @@ func set_factory(new_factory: FactoryModel) -> void:
 	factory_graph.bind_factory(factory)
 	machine_inspector.bind_factory(factory)
 	plant_overview.bind_factory(factory)
+	controller_trends.bind_factory(factory)
 
 	if editor_history != null:
 		editor_history.clear()
@@ -117,6 +122,7 @@ func set_factory(new_factory: FactoryModel) -> void:
 func _on_tick_advanced(delta_seconds: float) -> void:
 	if factory != null:
 		factory.tick(delta_seconds)
+		controller_trends.advance(delta_seconds)
 
 func _on_machine_requested(definition_id: String) -> void:
 	factory_graph.request_machine(definition_id)
@@ -127,10 +133,12 @@ func _on_machine_requested(definition_id: String) -> void:
 
 func _on_machine_selected(machine: MachineModel) -> void:
 	machine_inspector.show_machine(machine)
+	controller_trends.show_machine(machine)
 
 
 func _on_connection_selected(connection: ConnectionModel) -> void:
 	machine_inspector.show_connection(connection)
+	controller_trends.show_machine(null)
 
 
 func _on_overview_machine_requested(machine_id: String) -> void:
