@@ -27,6 +27,10 @@ var production_signature := ""
 @onready var disabled_card := %DisabledCard as KpiCard
 @onready var connections_card := %ConnectionsCard as KpiCard
 @onready var power_card := %PowerCard as KpiCard
+@onready var cash_card := %CashCard as KpiCard
+@onready var revenue_card := %RevenueCard as KpiCard
+@onready var expenses_card := %ExpensesCard as KpiCard
+@onready var net_cash_flow_card := %NetCashFlowCard as KpiCard
 @onready var alert_count_label := %AlertCountLabel as Label
 @onready var alerts_list := %AlertsList as VBoxContainer
 @onready var throughput_list := %ThroughputList as VBoxContainer
@@ -43,6 +47,10 @@ func _ready() -> void:
 	disabled_card.set_accent(ThemeManager.COLOR_DANGER)
 	connections_card.set_accent(ThemeManager.COLOR_ACCENT)
 	power_card.set_accent(ThemeManager.COLOR_WARNING)
+	cash_card.set_accent(ThemeManager.COLOR_ACCENT)
+	revenue_card.set_accent(ThemeManager.COLOR_SUCCESS)
+	expenses_card.set_accent(ThemeManager.COLOR_DANGER)
+	net_cash_flow_card.set_accent(ThemeManager.COLOR_TEXT_MUTED)
 	_request_refresh()
 
 
@@ -77,7 +85,8 @@ func _connect_factory_events() -> void:
 		factory.event_bus.machine_inventory_changed,
 		factory.event_bus.machine_production_changed,
 		factory.event_bus.machine_power_changed,
-		factory.event_bus.machine_condition_changed
+		factory.event_bus.machine_condition_changed,
+		factory.event_bus.economy_changed
 	]
 
 	for factory_signal: Signal in signals:
@@ -101,7 +110,8 @@ func _disconnect_factory_events() -> void:
 		factory.event_bus.machine_inventory_changed,
 		factory.event_bus.machine_production_changed,
 		factory.event_bus.machine_power_changed,
-		factory.event_bus.machine_condition_changed
+		factory.event_bus.machine_condition_changed,
+		factory.event_bus.economy_changed
 	]
 
 	for factory_signal: Signal in signals:
@@ -177,6 +187,7 @@ func _refresh() -> void:
 	disabled_card.set_value(str(disabled))
 	connections_card.set_value(str(connection_count))
 	power_card.set_value("%.2f PU" % total_power)
+	_update_economy()
 
 	_update_status(
 		total,
@@ -191,6 +202,44 @@ func _refresh() -> void:
 	_update_inventory(inventory_totals)
 
 
+func _update_economy() -> void:
+	if factory == null:
+		cash_card.set_value(_format_currency(0.0))
+		revenue_card.set_value("$0.00/s")
+		expenses_card.set_value("$0.00/s")
+		net_cash_flow_card.set_value("$0.00/s")
+		net_cash_flow_card.set_accent(ThemeManager.COLOR_TEXT_MUTED)
+		return
+
+	cash_card.set_value(_format_currency(factory.cash_balance))
+	revenue_card.set_value(
+		"%s/s" % _format_currency(factory.revenue_per_second)
+	)
+	expenses_card.set_value(
+		"%s/s" % _format_currency(factory.expenses_per_second)
+	)
+	net_cash_flow_card.set_value(
+		"%s%s/s" % [
+			"+" if factory.net_cash_flow_per_second > 0.0 else "",
+			_format_currency(factory.net_cash_flow_per_second)
+		]
+	)
+
+	if factory.net_cash_flow_per_second > 0.0:
+		net_cash_flow_card.set_accent(ThemeManager.COLOR_SUCCESS)
+	elif factory.net_cash_flow_per_second < 0.0:
+		net_cash_flow_card.set_accent(ThemeManager.COLOR_DANGER)
+	else:
+		net_cash_flow_card.set_accent(ThemeManager.COLOR_TEXT_MUTED)
+
+
+func _format_currency(amount: float) -> String:
+	if amount < 0.0:
+		return "-$%.2f" % absf(amount)
+
+	return "$%.2f" % amount
+
+
 func _update_status(
 	total: int,
 	running: int,
@@ -198,7 +247,12 @@ func _update_status(
 	disabled: int,
 	maintenance_due: int
 ) -> void:
-	if total == 0:
+	if factory != null and factory.cash_balance < 0.0:
+		status_banner.set_status(
+			"Plant cash balance is negative.",
+			ThemeManager.COLOR_DANGER
+		)
+	elif total == 0:
 		status_banner.set_status(
 			"No machines in this plant yet.",
 			ThemeManager.COLOR_TEXT_MUTED

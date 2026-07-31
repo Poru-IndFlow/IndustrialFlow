@@ -6,6 +6,9 @@
   "ramp_up_seconds": 1.0,
   "ramp_down_seconds": 1.0,
   "cycle_time": 1.0,
+  "purchase_prices": {
+    "water": 0.05
+  },
   "inputs": [],
   "outputs": [
     {

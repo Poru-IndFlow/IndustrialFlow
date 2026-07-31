@@ -26,6 +26,7 @@ static func save_factory(
 			elapsed_simulation_seconds,
 			0.0
 		),
+		"economy": factory.serialize_economy(),
 		"machines": _serialize_machines(factory),
 		"connections": _serialize_connections(factory)
 	}
@@ -151,6 +152,8 @@ static func _deserialize_factory(
 		)
 
 	var factory := FactoryModel.new(event_bus)
+	var economy_data: Dictionary = data.get("economy", {})
+	factory.restore_economy(economy_data)
 	var machine_entries: Array = data.get("machines", [])
 
 	for value: Variant in machine_entries:

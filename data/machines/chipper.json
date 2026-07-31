@@ -39,6 +39,7 @@
 	}
   ],
   "idle_power_ratio": 0.15,
+  "operating_cost_per_power_hour": 12.0,
   "power_curve": [
 	{
 	  "speed": 0.0,
