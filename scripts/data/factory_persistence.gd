@@ -108,6 +108,8 @@ static func _serialize_machines(factory: FactoryModel) -> Array[Dictionary]:
 			"controller_kp": machine.controller_kp,
 			"controller_ki": machine.controller_ki,
 			"controller_integral": machine.controller_integral,
+			"condition": machine.condition,
+			"operating_hours": machine.operating_hours,
 			"state": int(machine.state),
 			"cycle_progress": machine.cycle_progress,
 			"inventory": machine.inventory.amounts.duplicate(true)
@@ -232,6 +234,15 @@ static func _deserialize_factory(
 			float(entry.get("controller_integral", 0.0)),
 			-machine.controller_output_max,
 			machine.controller_output_max
+		)
+		machine.condition = clampf(
+			float(entry.get("condition", 1.0)),
+			0.0,
+			1.0
+		)
+		machine.operating_hours = maxf(
+			0.0,
+			float(entry.get("operating_hours", 0.0))
 		)
 		machine.actual_operating_rate = clampf(
 			float(entry.get("actual_operating_rate", 0.0)),
