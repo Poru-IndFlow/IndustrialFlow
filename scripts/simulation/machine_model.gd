@@ -33,6 +33,13 @@ var performance_curve: Array[Dictionary] = []
 var power_curve: Array[Dictionary] = []
 var idle_power_ratio := 0.15
 var power_demand := 0.0
+var condition := 1.0
+var operating_hours := 0.0
+var wear_per_operating_hour := 0.0
+var minimum_condition_efficiency := 0.65
+var maximum_wear_power_multiplier := 1.5
+var maintenance_warning_condition := 0.75
+var maintenance_critical_condition := 0.4
 var control_mode := ControlMode.MANUAL
 var control_resource := ""
 var inventory_setpoint := 0.0
@@ -50,6 +57,8 @@ var consumption_rates_per_second: Dictionary = {}
 var _produced_in_window: Dictionary = {}
 var _consumed_in_window: Dictionary = {}
 var _telemetry_elapsed := 0.0
+var _last_condition_notification := 1.0
+var _last_hours_notification := 0.0
 
 const TELEMETRY_WINDOW_SECONDS := 1.0
 
@@ -88,6 +97,54 @@ static func create(
 		float(machine_definition.get("idle_power_ratio", 0.15)),
 		0.0,
 		1.0
+	)
+	machine.wear_per_operating_hour = maxf(
+		0.0,
+		float(
+			machine_definition.get(
+				"wear_per_operating_hour",
+				0.0
+			)
+		)
+	)
+	machine.minimum_condition_efficiency = clampf(
+		float(
+			machine_definition.get(
+				"minimum_condition_efficiency",
+				0.65
+			)
+		),
+		0.0,
+		1.0
+	)
+	machine.maximum_wear_power_multiplier = maxf(
+		1.0,
+		float(
+			machine_definition.get(
+				"maximum_wear_power_multiplier",
+				1.5
+			)
+		)
+	)
+	machine.maintenance_warning_condition = clampf(
+		float(
+			machine_definition.get(
+				"maintenance_warning_condition",
+				0.75
+			)
+		),
+		0.0,
+		1.0
+	)
+	machine.maintenance_critical_condition = clampf(
+		float(
+			machine_definition.get(
+				"maintenance_critical_condition",
+				0.4
+			)
+		),
+		0.0,
+		machine.maintenance_warning_condition
 	)
 	machine.control_resource = str(
 		machine_definition.get("control_resource", "")
@@ -189,10 +246,18 @@ func tick(delta_seconds: float) -> void:
 		return
 
 	behaviour.tick(self, delta_seconds)
+	_advance_wear(delta_seconds)
 	_update_power_demand()
 
 
 func get_effective_production_rate() -> float:
+	return (
+		_get_base_production_rate()
+		* get_condition_efficiency()
+	)
+
+
+func _get_base_production_rate() -> float:
 	if performance_curve.is_empty():
 		return actual_operating_rate
 
@@ -238,6 +303,13 @@ func get_production_efficiency() -> float:
 
 
 func get_active_power_demand() -> float:
+	return (
+		_get_base_power_demand()
+		* get_condition_power_multiplier()
+	)
+
+
+func _get_base_power_demand() -> float:
 	if power_curve.is_empty() or actual_operating_rate <= 0.0:
 		return 0.0
 
@@ -270,6 +342,83 @@ func get_active_power_demand() -> float:
 		)
 
 	return float(power_curve.back()["power"])
+
+
+func supports_maintenance() -> bool:
+	return wear_per_operating_hour > 0.0
+
+
+func get_condition_efficiency() -> float:
+	return lerpf(
+		minimum_condition_efficiency,
+		1.0,
+		condition
+	)
+
+
+func get_condition_power_multiplier() -> float:
+	return lerpf(
+		maximum_wear_power_multiplier,
+		1.0,
+		condition
+	)
+
+
+func is_maintenance_due() -> bool:
+	return (
+		supports_maintenance()
+		and condition <= maintenance_warning_condition
+	)
+
+
+func is_maintenance_critical() -> bool:
+	return (
+		supports_maintenance()
+		and condition <= maintenance_critical_condition
+	)
+
+
+func perform_maintenance() -> void:
+	if not supports_maintenance() or condition >= 1.0:
+		return
+
+	condition = 1.0
+	_last_condition_notification = condition
+	notify_condition_changed()
+	_update_power_demand()
+
+
+func _advance_wear(delta_seconds: float) -> void:
+	if (
+		delta_seconds <= 0.0
+		or state != State.RUNNING
+		or not supports_maintenance()
+	):
+		return
+
+	var load_factor := maxf(actual_operating_rate, 0.0)
+	var elapsed_hours := (
+		delta_seconds * load_factor / 3600.0
+	)
+	operating_hours += elapsed_hours
+	condition = clampf(
+		condition - wear_per_operating_hour * elapsed_hours,
+		0.0,
+		1.0
+	)
+
+	if (
+		absf(condition - _last_condition_notification) >= 0.0025
+		or operating_hours - _last_hours_notification >= 0.01
+	):
+		_last_condition_notification = condition
+		_last_hours_notification = operating_hours
+		notify_condition_changed()
+
+
+func notify_condition_changed() -> void:
+	if event_bus != null:
+		event_bus.machine_condition_changed.emit(self)
 
 
 func get_power_mode() -> String:

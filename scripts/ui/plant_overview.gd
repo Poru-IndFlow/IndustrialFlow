@@ -76,7 +76,8 @@ func _connect_factory_events() -> void:
 		factory.event_bus.machine_state_changed,
 		factory.event_bus.machine_inventory_changed,
 		factory.event_bus.machine_production_changed,
-		factory.event_bus.machine_power_changed
+		factory.event_bus.machine_power_changed,
+		factory.event_bus.machine_condition_changed
 	]
 
 	for factory_signal: Signal in signals:
@@ -99,7 +100,8 @@ func _disconnect_factory_events() -> void:
 		factory.event_bus.machine_state_changed,
 		factory.event_bus.machine_inventory_changed,
 		factory.event_bus.machine_production_changed,
-		factory.event_bus.machine_power_changed
+		factory.event_bus.machine_power_changed,
+		factory.event_bus.machine_condition_changed
 	]
 
 	for factory_signal: Signal in signals:
@@ -131,6 +133,7 @@ func _refresh() -> void:
 	var idle := 0
 	var blocked := 0
 	var disabled := 0
+	var maintenance_due := 0
 	var connection_count := 0
 	var total_power := 0.0
 	var inventory_totals: Dictionary = {}
@@ -146,6 +149,9 @@ func _refresh() -> void:
 				continue
 
 			total_power += machine.power_demand
+
+			if machine.is_maintenance_due():
+				maintenance_due += 1
 
 			match machine.state:
 				MachineModel.State.RUNNING:
@@ -172,7 +178,13 @@ func _refresh() -> void:
 	connections_card.set_value(str(connection_count))
 	power_card.set_value("%.2f PU" % total_power)
 
-	_update_status(total, running, blocked, disabled)
+	_update_status(
+		total,
+		running,
+		blocked,
+		disabled,
+		maintenance_due
+	)
 	_update_alerts()
 	_update_throughput()
 	_update_production()
@@ -183,7 +195,8 @@ func _update_status(
 	total: int,
 	running: int,
 	blocked: int,
-	disabled: int
+	disabled: int,
+	maintenance_due: int
 ) -> void:
 	if total == 0:
 		status_banner.set_status(
@@ -203,6 +216,14 @@ func _update_status(
 			"%d blocked machine%s need attention." % [
 				blocked,
 				"" if blocked == 1 else "s"
+			],
+			ThemeManager.COLOR_WARNING
+		)
+	elif maintenance_due > 0:
+		status_banner.set_status(
+			"%d machine%s need maintenance." % [
+				maintenance_due,
+				"" if maintenance_due == 1 else "s"
 			],
 			ThemeManager.COLOR_WARNING
 		)
@@ -563,7 +584,7 @@ func _update_alerts() -> void:
 		for value: Variant in factory.machines.values():
 			var machine := value as MachineModel
 
-			if machine != null and _is_alert_state(machine.state):
+			if machine != null and _is_alert_machine(machine):
 				alert_machines.append(machine)
 
 	alert_machines.sort_custom(_sort_alert_machines)
@@ -593,8 +614,8 @@ func _update_alerts() -> void:
 		alerts_list.add_child(row)
 		row.configure(
 			machine,
-			_alert_detail(machine.state),
-			_alert_color(machine.state)
+			_alert_detail(machine),
+			_alert_color(machine)
 		)
 		row.machine_requested.connect(_on_machine_requested)
 
@@ -609,26 +630,33 @@ func _build_alert_signature(
 
 	for machine: MachineModel in machines:
 		parts.append(
-			"%s:%d" % [machine.instance_id, machine.state]
+			"%s:%d:%.3f" % [
+				machine.instance_id,
+				machine.state,
+				machine.condition
+			]
 		)
 
 	return "|".join(parts)
 
 
-func _is_alert_state(state: MachineModel.State) -> bool:
-	return state in [
-		MachineModel.State.BLOCKED_INPUT,
-		MachineModel.State.BLOCKED_OUTPUT,
-		MachineModel.State.DISABLED
-	]
+func _is_alert_machine(machine: MachineModel) -> bool:
+	return (
+		machine.state in [
+			MachineModel.State.BLOCKED_INPUT,
+			MachineModel.State.BLOCKED_OUTPUT,
+			MachineModel.State.DISABLED
+		]
+		or machine.is_maintenance_due()
+	)
 
 
 func _sort_alert_machines(
 	left: MachineModel,
 	right: MachineModel
 ) -> bool:
-	var left_priority := _alert_priority(left.state)
-	var right_priority := _alert_priority(right.state)
+	var left_priority := _alert_priority(left)
+	var right_priority := _alert_priority(right)
 
 	if left_priority == right_priority:
 		return left.display_name.naturalnocasecmp_to(
@@ -638,24 +666,46 @@ func _sort_alert_machines(
 	return left_priority < right_priority
 
 
-func _alert_priority(state: MachineModel.State) -> int:
-	return 0 if state == MachineModel.State.DISABLED else 1
+func _alert_priority(machine: MachineModel) -> int:
+	if machine.state == MachineModel.State.DISABLED:
+		return 0
+
+	if machine.is_maintenance_critical():
+		return 1
+
+	if machine.state in [
+		MachineModel.State.BLOCKED_INPUT,
+		MachineModel.State.BLOCKED_OUTPUT
+	]:
+		return 2
+
+	return 3
 
 
-func _alert_detail(state: MachineModel.State) -> String:
-	match state:
+func _alert_detail(machine: MachineModel) -> String:
+	match machine.state:
 		MachineModel.State.DISABLED:
 			return "Disabled"
 		MachineModel.State.BLOCKED_INPUT:
 			return "Blocked — waiting for input"
 		MachineModel.State.BLOCKED_OUTPUT:
 			return "Blocked — output has nowhere to go"
-		_:
-			return "Needs attention"
+
+	if machine.is_maintenance_critical():
+		return "Critical condition — %.1f%%" % (
+			machine.condition * 100.0
+		)
+
+	return "Maintenance due — %.1f%% condition" % (
+		machine.condition * 100.0
+	)
 
 
-func _alert_color(state: MachineModel.State) -> Color:
-	if state == MachineModel.State.DISABLED:
+func _alert_color(machine: MachineModel) -> Color:
+	if (
+		machine.state == MachineModel.State.DISABLED
+		or machine.is_maintenance_critical()
+	):
 		return ThemeManager.COLOR_DANGER
 
 	return ThemeManager.COLOR_WARNING

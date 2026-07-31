@@ -19,6 +19,13 @@ var effective_rate_value_label: Label
 var efficiency_value_label: Label
 var power_demand_value_label: Label
 var power_mode_value_label: Label
+var maintenance_section: VBoxContainer
+var condition_badge: Label
+var condition_value_label: Label
+var condition_efficiency_value_label: Label
+var wear_power_value_label: Label
+var operating_hours_value_label: Label
+var maintenance_button: Button
 var control_section: VBoxContainer
 var control_mode_option: OptionButton
 var inventory_setpoint_spin_box: SpinBox
@@ -119,7 +126,7 @@ func _ready() -> void:
 	operation_section.add_child(effective_rate_row)
 
 	var efficiency_row := UIWidgets.create_labeled_value(
-		"Speed efficiency",
+		"Overall efficiency",
 		"—"
 	)
 	efficiency_value_label = UIWidgets.get_value_label(
@@ -144,6 +151,64 @@ func _ready() -> void:
 		power_mode_row
 	)
 	operation_section.add_child(power_mode_row)
+
+	operation_section.add_child(HSeparator.new())
+
+	maintenance_section = VBoxContainer.new()
+	operation_section.add_child(maintenance_section)
+
+	maintenance_section.add_child(
+		UIWidgets.create_section_header("Condition & Maintenance")
+	)
+
+	condition_badge = UIWidgets.create_status_badge(
+		"Good",
+		ThemeManager.COLOR_SUCCESS
+	)
+	maintenance_section.add_child(condition_badge)
+
+	var condition_row := UIWidgets.create_labeled_value(
+		"Condition",
+		"100%"
+	)
+	condition_value_label = UIWidgets.get_value_label(
+		condition_row
+	)
+	maintenance_section.add_child(condition_row)
+
+	var condition_efficiency_row := UIWidgets.create_labeled_value(
+		"Condition efficiency",
+		"100%"
+	)
+	condition_efficiency_value_label = UIWidgets.get_value_label(
+		condition_efficiency_row
+	)
+	maintenance_section.add_child(condition_efficiency_row)
+
+	var wear_power_row := UIWidgets.create_labeled_value(
+		"Wear power multiplier",
+		"1.00×"
+	)
+	wear_power_value_label = UIWidgets.get_value_label(
+		wear_power_row
+	)
+	maintenance_section.add_child(wear_power_row)
+
+	var operating_hours_row := UIWidgets.create_labeled_value(
+		"Operating hours",
+		"0.00 h"
+	)
+	operating_hours_value_label = UIWidgets.get_value_label(
+		operating_hours_row
+	)
+	maintenance_section.add_child(operating_hours_row)
+
+	maintenance_button = Button.new()
+	maintenance_button.text = "Perform Maintenance"
+	maintenance_button.pressed.connect(
+		_on_maintenance_pressed
+	)
+	maintenance_section.add_child(maintenance_button)
 
 	operation_section.add_child(HSeparator.new())
 
@@ -374,6 +439,9 @@ func bind_factory(new_factory: FactoryModel) -> void:
 	factory.event_bus.machine_control_changed.connect(
 		_on_machine_control_changed
 	)
+	factory.event_bus.machine_condition_changed.connect(
+		_on_machine_condition_changed
+	)
 	factory.event_bus.connection_flow_changed.connect(
 		_on_connection_changed
 	)
@@ -429,6 +497,10 @@ func _disconnect_factory_signals() -> void:
 		self,
 		"_on_machine_control_changed"
 	)
+	var condition_callback := Callable(
+		self,
+		"_on_machine_condition_changed"
+	)
 	var connection_callback := Callable(
 		self,
 		"_on_connection_changed"
@@ -480,6 +552,13 @@ func _disconnect_factory_signals() -> void:
 			control_callback
 		)
 
+	if factory.event_bus.machine_condition_changed.is_connected(
+		condition_callback
+	):
+		factory.event_bus.machine_condition_changed.disconnect(
+			condition_callback
+		)
+
 	if factory.event_bus.machine_removed.is_connected(
 		removed_callback
 	):
@@ -527,6 +606,13 @@ func _on_machine_power_changed(machine: MachineModel) -> void:
 func _on_machine_control_changed(machine: MachineModel) -> void:
 	if machine == selected_machine:
 		_update_control_labels()
+
+
+func _on_machine_condition_changed(machine: MachineModel) -> void:
+	if machine == selected_machine:
+		_update_condition_labels()
+		_update_performance_labels()
+		_update_power_labels()
 
 
 func _on_machine_removed(machine_id: String) -> void:
@@ -588,6 +674,7 @@ func _refresh() -> void:
 		efficiency_value_label.text = "—"
 		power_demand_value_label.text = "0.00 PU"
 		power_mode_value_label.text = "Off"
+		maintenance_section.visible = false
 		control_section.visible = false
 		updating_controls = false
 		UIWidgets.update_status_badge(
@@ -619,6 +706,9 @@ func _refresh() -> void:
 	operating_rate_spin_box.value = (
 		selected_machine.manual_operating_rate * 100.0
 	)
+	maintenance_section.visible = (
+		selected_machine.supports_maintenance()
+	)
 	control_section.visible = (
 		selected_machine.supports_inventory_control()
 	)
@@ -639,6 +729,7 @@ func _refresh() -> void:
 	)
 	_update_performance_labels()
 	_update_power_labels()
+	_update_condition_labels()
 	_update_control_labels()
 	updating_controls = false
 	UIWidgets.update_status_badge(
@@ -703,6 +794,53 @@ func _update_power_labels() -> void:
 		selected_machine.power_demand
 	)
 	power_mode_value_label.text = selected_machine.get_power_mode()
+
+
+func _update_condition_labels() -> void:
+	if (
+		condition_badge == null
+		or condition_value_label == null
+		or condition_efficiency_value_label == null
+		or wear_power_value_label == null
+		or operating_hours_value_label == null
+		or maintenance_button == null
+	):
+		return
+
+	if selected_machine == null:
+		condition_value_label.text = "100%"
+		condition_efficiency_value_label.text = "100%"
+		wear_power_value_label.text = "1.00×"
+		operating_hours_value_label.text = "0.00 h"
+		maintenance_button.disabled = true
+		UIWidgets.update_status_badge(
+			condition_badge,
+			"No condition data",
+			ThemeManager.COLOR_TEXT_MUTED
+		)
+		return
+
+	condition_value_label.text = "%.1f%%" % (
+		selected_machine.condition * 100.0
+	)
+	condition_efficiency_value_label.text = "%.1f%%" % (
+		selected_machine.get_condition_efficiency() * 100.0
+	)
+	wear_power_value_label.text = "%.2f×" % (
+		selected_machine.get_condition_power_multiplier()
+	)
+	operating_hours_value_label.text = "%.3f h" % (
+		selected_machine.operating_hours
+	)
+	maintenance_button.disabled = (
+		not selected_machine.supports_maintenance()
+		or selected_machine.condition >= 0.999
+	)
+	UIWidgets.update_status_badge(
+		condition_badge,
+		_condition_text(selected_machine),
+		_condition_color(selected_machine)
+	)
 
 
 func _update_control_labels() -> void:
@@ -954,6 +1092,13 @@ func _on_controller_ki_changed(value: float) -> void:
 	)
 
 
+func _on_maintenance_pressed() -> void:
+	if selected_machine == null:
+		return
+
+	selected_machine.perform_maintenance()
+
+
 func _populate_resource_section(
 	container: VBoxContainer,
 	entries: Array
@@ -1030,3 +1175,23 @@ func _state_color(state: MachineModel.State) -> Color:
 			return ThemeManager.COLOR_DANGER
 		_:
 			return ThemeManager.COLOR_ACCENT
+
+
+func _condition_text(machine: MachineModel) -> String:
+	if machine.is_maintenance_critical():
+		return "Critical — maintenance required"
+
+	if machine.is_maintenance_due():
+		return "Maintenance due"
+
+	return "Good"
+
+
+func _condition_color(machine: MachineModel) -> Color:
+	if machine.is_maintenance_critical():
+		return ThemeManager.COLOR_DANGER
+
+	if machine.is_maintenance_due():
+		return ThemeManager.COLOR_WARNING
+
+	return ThemeManager.COLOR_SUCCESS

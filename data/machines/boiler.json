@@ -5,6 +5,11 @@
   "processing_mode": "continuous",
   "ramp_up_seconds": 5.0,
   "ramp_down_seconds": 3.0,
+  "wear_per_operating_hour": 6.0,
+  "minimum_condition_efficiency": 0.65,
+  "maximum_wear_power_multiplier": 1.5,
+  "maintenance_warning_condition": 0.75,
+  "maintenance_critical_condition": 0.4,
   "performance_curve": [
     {
       "speed": 0.0,
