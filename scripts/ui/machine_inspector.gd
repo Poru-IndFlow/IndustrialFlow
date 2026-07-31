@@ -19,6 +19,15 @@ var effective_rate_value_label: Label
 var efficiency_value_label: Label
 var power_demand_value_label: Label
 var power_mode_value_label: Label
+var control_section: VBoxContainer
+var control_mode_option: OptionButton
+var inventory_setpoint_spin_box: SpinBox
+var controller_kp_spin_box: SpinBox
+var controller_ki_spin_box: SpinBox
+var controlled_inventory_value_label: Label
+var controller_error_value_label: Label
+var controller_integral_value_label: Label
+var controller_output_value_label: Label
 var connection_enabled_check_box: CheckBox
 var connection_capacity_spin_box: SpinBox
 var input_title: Label
@@ -138,6 +147,128 @@ func _ready() -> void:
 
 	operation_section.add_child(HSeparator.new())
 
+	control_section = VBoxContainer.new()
+	operation_section.add_child(control_section)
+
+	control_section.add_child(
+		UIWidgets.create_section_header("Inventory Control")
+	)
+
+	var control_mode_row := HBoxContainer.new()
+	control_section.add_child(control_mode_row)
+
+	var control_mode_label := Label.new()
+	control_mode_label.text = "Mode"
+	control_mode_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	control_mode_row.add_child(control_mode_label)
+
+	control_mode_option = OptionButton.new()
+	control_mode_option.custom_minimum_size = Vector2(135, 0)
+	control_mode_option.add_item(
+		"Manual",
+		MachineModel.ControlMode.MANUAL
+	)
+	control_mode_option.add_item(
+		"Automatic",
+		MachineModel.ControlMode.AUTOMATIC
+	)
+	control_mode_option.item_selected.connect(
+		_on_control_mode_selected
+	)
+	control_mode_row.add_child(control_mode_option)
+
+	var setpoint_row := HBoxContainer.new()
+	control_section.add_child(setpoint_row)
+
+	var setpoint_label := Label.new()
+	setpoint_label.text = "Inventory setpoint"
+	setpoint_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	setpoint_row.add_child(setpoint_label)
+
+	inventory_setpoint_spin_box = SpinBox.new()
+	inventory_setpoint_spin_box.custom_minimum_size = Vector2(135, 0)
+	inventory_setpoint_spin_box.min_value = 0.0
+	inventory_setpoint_spin_box.max_value = 1000000.0
+	inventory_setpoint_spin_box.step = 100.0
+	inventory_setpoint_spin_box.value_changed.connect(
+		_on_inventory_setpoint_changed
+	)
+	setpoint_row.add_child(inventory_setpoint_spin_box)
+
+	var kp_row := HBoxContainer.new()
+	control_section.add_child(kp_row)
+
+	var kp_label := Label.new()
+	kp_label.text = "Proportional gain"
+	kp_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	kp_row.add_child(kp_label)
+
+	controller_kp_spin_box = SpinBox.new()
+	controller_kp_spin_box.custom_minimum_size = Vector2(135, 0)
+	controller_kp_spin_box.min_value = 0.0
+	controller_kp_spin_box.max_value = 10.0
+	controller_kp_spin_box.step = 0.05
+	controller_kp_spin_box.value_changed.connect(
+		_on_controller_kp_changed
+	)
+	kp_row.add_child(controller_kp_spin_box)
+
+	var ki_row := HBoxContainer.new()
+	control_section.add_child(ki_row)
+
+	var ki_label := Label.new()
+	ki_label.text = "Integral gain"
+	ki_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ki_row.add_child(ki_label)
+
+	controller_ki_spin_box = SpinBox.new()
+	controller_ki_spin_box.custom_minimum_size = Vector2(135, 0)
+	controller_ki_spin_box.min_value = 0.0
+	controller_ki_spin_box.max_value = 1.0
+	controller_ki_spin_box.step = 0.001
+	controller_ki_spin_box.value_changed.connect(
+		_on_controller_ki_changed
+	)
+	ki_row.add_child(controller_ki_spin_box)
+
+	var controlled_inventory_row := UIWidgets.create_labeled_value(
+		"Controlled inventory",
+		"0"
+	)
+	controlled_inventory_value_label = UIWidgets.get_value_label(
+		controlled_inventory_row
+	)
+	control_section.add_child(controlled_inventory_row)
+
+	var controller_error_row := UIWidgets.create_labeled_value(
+		"Control error",
+		"0"
+	)
+	controller_error_value_label = UIWidgets.get_value_label(
+		controller_error_row
+	)
+	control_section.add_child(controller_error_row)
+
+	var controller_integral_row := UIWidgets.create_labeled_value(
+		"Integral contribution",
+		"0%"
+	)
+	controller_integral_value_label = UIWidgets.get_value_label(
+		controller_integral_row
+	)
+	control_section.add_child(controller_integral_row)
+
+	var controller_output_row := UIWidgets.create_labeled_value(
+		"Controller output",
+		"0%"
+	)
+	controller_output_value_label = UIWidgets.get_value_label(
+		controller_output_row
+	)
+	control_section.add_child(controller_output_row)
+
+	operation_section.add_child(HSeparator.new())
+
 	connection_operation_section = VBoxContainer.new()
 	connection_operation_section.visible = false
 	root.add_child(connection_operation_section)
@@ -240,6 +371,9 @@ func bind_factory(new_factory: FactoryModel) -> void:
 	factory.event_bus.machine_power_changed.connect(
 		_on_machine_power_changed
 	)
+	factory.event_bus.machine_control_changed.connect(
+		_on_machine_control_changed
+	)
 	factory.event_bus.connection_flow_changed.connect(
 		_on_connection_changed
 	)
@@ -291,6 +425,10 @@ func _disconnect_factory_signals() -> void:
 		self,
 		"_on_machine_power_changed"
 	)
+	var control_callback := Callable(
+		self,
+		"_on_machine_control_changed"
+	)
 	var connection_callback := Callable(
 		self,
 		"_on_connection_changed"
@@ -335,6 +473,13 @@ func _disconnect_factory_signals() -> void:
 			power_callback
 		)
 
+	if factory.event_bus.machine_control_changed.is_connected(
+		control_callback
+	):
+		factory.event_bus.machine_control_changed.disconnect(
+			control_callback
+		)
+
 	if factory.event_bus.machine_removed.is_connected(
 		removed_callback
 	):
@@ -377,6 +522,11 @@ func _on_machine_performance_changed(machine: MachineModel) -> void:
 func _on_machine_power_changed(machine: MachineModel) -> void:
 	if machine == selected_machine:
 		_update_power_labels()
+
+
+func _on_machine_control_changed(machine: MachineModel) -> void:
+	if machine == selected_machine:
+		_update_control_labels()
 
 
 func _on_machine_removed(machine_id: String) -> void:
@@ -438,6 +588,7 @@ func _refresh() -> void:
 		efficiency_value_label.text = "—"
 		power_demand_value_label.text = "0.00 PU"
 		power_mode_value_label.text = "Off"
+		control_section.visible = false
 		updating_controls = false
 		UIWidgets.update_status_badge(
 			state_badge,
@@ -461,12 +612,34 @@ func _refresh() -> void:
 	updating_controls = true
 	enabled_check_box.disabled = false
 	enabled_check_box.button_pressed = selected_machine.enabled
-	operating_rate_spin_box.editable = true
+	operating_rate_spin_box.editable = (
+		selected_machine.control_mode
+		== MachineModel.ControlMode.MANUAL
+	)
 	operating_rate_spin_box.value = (
-		selected_machine.operating_rate * 100.0
+		selected_machine.manual_operating_rate * 100.0
+	)
+	control_section.visible = (
+		selected_machine.supports_inventory_control()
+	)
+	control_mode_option.select(
+		control_mode_option.get_item_index(
+			selected_machine.control_mode
+		)
+	)
+	inventory_setpoint_spin_box.value = (
+		selected_machine.inventory_setpoint
+	)
+	controller_kp_spin_box.value = selected_machine.controller_kp
+	controller_ki_spin_box.value = selected_machine.controller_ki
+	inventory_setpoint_spin_box.suffix = " %s" % (
+		ResourceRegistry.get_unit(
+			selected_machine.control_resource
+		)
 	)
 	_update_performance_labels()
 	_update_power_labels()
+	_update_control_labels()
 	updating_controls = false
 	UIWidgets.update_status_badge(
 		state_badge,
@@ -530,6 +703,41 @@ func _update_power_labels() -> void:
 		selected_machine.power_demand
 	)
 	power_mode_value_label.text = selected_machine.get_power_mode()
+
+
+func _update_control_labels() -> void:
+	if (
+		controlled_inventory_value_label == null
+		or controller_error_value_label == null
+		or controller_integral_value_label == null
+		or controller_output_value_label == null
+	):
+		return
+
+	if selected_machine == null:
+		controlled_inventory_value_label.text = "0"
+		controller_error_value_label.text = "0"
+		controller_integral_value_label.text = "0%"
+		controller_output_value_label.text = "0%"
+		return
+
+	var unit := ResourceRegistry.get_unit(
+		selected_machine.control_resource
+	)
+	controlled_inventory_value_label.text = "%.1f %s" % [
+		selected_machine.controlled_inventory_amount,
+		unit
+	]
+	controller_error_value_label.text = "%.1f %s" % [
+		selected_machine.controller_error,
+		unit
+	]
+	controller_integral_value_label.text = "%.0f%%" % (
+		selected_machine.controller_integral * 100.0
+	)
+	controller_output_value_label.text = "%.0f%%" % (
+		selected_machine.operating_rate * 100.0
+	)
 
 
 func _refresh_connection() -> void:
@@ -677,6 +885,73 @@ func _on_operating_rate_changed(percent: float) -> void:
 		return
 
 	selected_machine.set_operating_rate(percent / 100.0)
+
+
+func _on_control_mode_selected(index: int) -> void:
+	if updating_controls or selected_machine == null:
+		return
+
+	var mode := control_mode_option.get_item_id(index)
+	var previous_mode := selected_machine.control_mode
+
+	if mode == previous_mode:
+		return
+
+	_execute_setting_action(
+		"set control mode",
+		selected_machine.set_control_mode.bind(mode),
+		selected_machine.set_control_mode.bind(previous_mode)
+	)
+
+
+func _on_inventory_setpoint_changed(value: float) -> void:
+	if updating_controls or selected_machine == null:
+		return
+
+	var previous_value := selected_machine.inventory_setpoint
+
+	if is_equal_approx(previous_value, value):
+		return
+
+	_execute_setting_action(
+		"set inventory setpoint",
+		selected_machine.set_inventory_setpoint.bind(value),
+		selected_machine.set_inventory_setpoint.bind(
+			previous_value
+		)
+	)
+
+
+func _on_controller_kp_changed(value: float) -> void:
+	if updating_controls or selected_machine == null:
+		return
+
+	var previous_value := selected_machine.controller_kp
+
+	if is_equal_approx(previous_value, value):
+		return
+
+	_execute_setting_action(
+		"set proportional gain",
+		selected_machine.set_controller_kp.bind(value),
+		selected_machine.set_controller_kp.bind(previous_value)
+	)
+
+
+func _on_controller_ki_changed(value: float) -> void:
+	if updating_controls or selected_machine == null:
+		return
+
+	var previous_value := selected_machine.controller_ki
+
+	if is_equal_approx(previous_value, value):
+		return
+
+	_execute_setting_action(
+		"set integral gain",
+		selected_machine.set_controller_ki.bind(value),
+		selected_machine.set_controller_ki.bind(previous_value)
+	)
 
 
 func _populate_resource_section(

@@ -1,0 +1,19 @@
+{
+  "id": "wood_chip_consumer",
+  "display_name": "Wood Chip Consumer",
+  "category": "processing",
+  "processing_mode": "continuous",
+  "ramp_up_seconds": 1.0,
+  "ramp_down_seconds": 1.0,
+  "cycle_time": 1.0,
+  "inputs": [
+    {
+      "resource": "wood_chips",
+      "amount": 10.0
+    }
+  ],
+  "outputs": [],
+  "internal_storage": {
+    "wood_chips": 100.0
+  }
+}

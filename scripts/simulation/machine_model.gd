@@ -9,6 +9,11 @@ enum State {
 	DISABLED
 }
 
+enum ControlMode {
+	MANUAL,
+	AUTOMATIC
+}
+
 var instance_id := ""
 var definition_id := ""
 var display_name := ""
@@ -20,6 +25,7 @@ var event_bus: EventBus
 var state := State.IDLE
 var enabled := true
 var operating_rate := 1.0
+var manual_operating_rate := 1.0
 var actual_operating_rate := 0.0
 var ramp_up_seconds := 1.0
 var ramp_down_seconds := 1.0
@@ -27,6 +33,16 @@ var performance_curve: Array[Dictionary] = []
 var power_curve: Array[Dictionary] = []
 var idle_power_ratio := 0.15
 var power_demand := 0.0
+var control_mode := ControlMode.MANUAL
+var control_resource := ""
+var inventory_setpoint := 0.0
+var controlled_inventory_amount := 0.0
+var controller_kp := 2.0
+var controller_ki := 0.001
+var controller_output_min := 0.0
+var controller_output_max := 1.5
+var controller_integral := 0.0
+var controller_error := 0.0
 var cycle_progress := 0.0
 var graph_position := Vector2.ZERO
 var production_rates_per_second: Dictionary = {}
@@ -72,6 +88,31 @@ static func create(
 		float(machine_definition.get("idle_power_ratio", 0.15)),
 		0.0,
 		1.0
+	)
+	machine.control_resource = str(
+		machine_definition.get("control_resource", "")
+	)
+	machine.inventory_setpoint = maxf(
+		0.0,
+		float(machine_definition.get("inventory_setpoint", 0.0))
+	)
+	machine.controller_kp = maxf(
+		0.0,
+		float(machine_definition.get("controller_kp", 2.0))
+	)
+	machine.controller_ki = maxf(
+		0.0,
+		float(machine_definition.get("controller_ki", 0.001))
+	)
+	machine.controller_output_min = clampf(
+		float(machine_definition.get("controller_output_min", 0.0)),
+		0.0,
+		1.5
+	)
+	machine.controller_output_max = clampf(
+		float(machine_definition.get("controller_output_max", 1.5)),
+		machine.controller_output_min,
+		1.5
 	)
 	machine.recipe = RecipeDefinition.from_machine_definition(machine_definition)
 
@@ -289,6 +330,9 @@ func set_enabled(value: bool) -> void:
 func set_operating_rate(value: float) -> void:
 	var clamped_rate := clampf(value, 0.0, 1.5)
 
+	if control_mode == ControlMode.MANUAL:
+		manual_operating_rate = clamped_rate
+
 	if is_equal_approx(operating_rate, clamped_rate):
 		return
 
@@ -302,6 +346,186 @@ func set_operating_rate(value: float) -> void:
 		set_state(State.IDLE)
 
 	notify_settings_changed()
+
+
+func supports_inventory_control() -> bool:
+	return not control_resource.is_empty()
+
+
+func set_control_mode(value: int) -> void:
+	var new_mode := clampi(
+		value,
+		ControlMode.MANUAL,
+		ControlMode.AUTOMATIC
+	)
+
+	if control_mode == new_mode:
+		return
+
+	if new_mode == ControlMode.AUTOMATIC:
+		manual_operating_rate = operating_rate
+		controller_integral = _get_bumpless_integral()
+	else:
+		operating_rate = manual_operating_rate
+		controller_integral = 0.0
+
+	control_mode = new_mode
+	notify_settings_changed()
+	notify_control_changed()
+
+
+func set_inventory_setpoint(value: float) -> void:
+	var new_setpoint := maxf(value, 0.0)
+
+	if is_equal_approx(inventory_setpoint, new_setpoint):
+		return
+
+	inventory_setpoint = new_setpoint
+	controller_integral = 0.0
+	controller_error = (
+		inventory_setpoint - controlled_inventory_amount
+	)
+	notify_settings_changed()
+	notify_control_changed()
+
+
+func set_controller_kp(value: float) -> void:
+	var new_value := maxf(value, 0.0)
+
+	if is_equal_approx(controller_kp, new_value):
+		return
+
+	controller_kp = new_value
+	controller_integral = 0.0
+	notify_settings_changed()
+	notify_control_changed()
+
+
+func set_controller_ki(value: float) -> void:
+	var new_value := maxf(value, 0.0)
+
+	if is_equal_approx(controller_ki, new_value):
+		return
+
+	controller_ki = new_value
+	controller_integral = 0.0
+	notify_settings_changed()
+	notify_control_changed()
+
+
+func update_inventory_controller(
+	inventory_amount: float,
+	delta_seconds: float
+) -> void:
+	var new_inventory_amount := maxf(inventory_amount, 0.0)
+	var inventory_changed := not is_equal_approx(
+		controlled_inventory_amount,
+		new_inventory_amount
+	)
+	controlled_inventory_amount = new_inventory_amount
+	controller_error = inventory_setpoint - controlled_inventory_amount
+
+	if (
+		control_mode != ControlMode.AUTOMATIC
+		or not supports_inventory_control()
+		or delta_seconds <= 0.0
+	):
+		if inventory_changed:
+			notify_control_changed()
+		return
+
+	var previous_rate := operating_rate
+	var previous_integral := controller_integral
+
+	if inventory_setpoint <= 0.0:
+		controller_integral = 0.0
+		operating_rate = 0.0
+
+		if (
+			inventory_changed
+			or not is_equal_approx(previous_rate, operating_rate)
+			or not is_equal_approx(
+				previous_integral,
+				controller_integral
+			)
+		):
+			notify_control_changed()
+		return
+
+	var normalized_error := (
+		controller_error / maxf(inventory_setpoint, 1.0)
+	)
+	var output_min := minf(
+		controller_output_min,
+		manual_operating_rate
+	)
+	var output_max := minf(
+		controller_output_max,
+		manual_operating_rate
+	)
+	var proposed_integral := controller_integral + (
+		controller_ki * normalized_error * delta_seconds
+	)
+	var proposed_output := (
+		controller_kp * normalized_error
+		+ proposed_integral
+	)
+	var blocks_positive_windup := (
+		proposed_output > output_max
+		and normalized_error > 0.0
+	)
+	var blocks_negative_windup := (
+		proposed_output < output_min
+		and normalized_error < 0.0
+	)
+
+	if not blocks_positive_windup and not blocks_negative_windup:
+		controller_integral = proposed_integral
+
+	controller_integral = clampf(
+		controller_integral,
+		-output_max,
+		output_max
+	)
+	operating_rate = clampf(
+		controller_kp * normalized_error + controller_integral,
+		output_min,
+		output_max
+	)
+
+	if (
+		inventory_changed
+		or not is_equal_approx(previous_rate, operating_rate)
+		or not is_equal_approx(
+			previous_integral,
+			controller_integral
+		)
+	):
+		notify_control_changed()
+
+
+func _get_bumpless_integral() -> float:
+	if inventory_setpoint <= 0.0:
+		return 0.0
+
+	var normalized_error := (
+		(inventory_setpoint - controlled_inventory_amount)
+		/ maxf(inventory_setpoint, 1.0)
+	)
+	var output_max := minf(
+		controller_output_max,
+		manual_operating_rate
+	)
+	return clampf(
+		manual_operating_rate - controller_kp * normalized_error,
+		-output_max,
+		output_max
+	)
+
+
+func notify_control_changed() -> void:
+	if event_bus != null:
+		event_bus.machine_control_changed.emit(self)
 
 
 func notify_settings_changed() -> void:

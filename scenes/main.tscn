@@ -1,4 +1,4 @@
-[gd_scene load_steps=10 format=3]
+[gd_scene load_steps=11 format=3]
 
 [ext_resource type="Script" path="res://scripts/ui/factory_graph.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/app/app_controller.gd" id="2"]
@@ -9,6 +9,7 @@
 [ext_resource type="Script" path="res://scripts/ui/editor_toolbar.gd" id="7"]
 [ext_resource type="Script" path="res://scripts/ui/editor_history.gd" id="8"]
 [ext_resource type="PackedScene" path="res://scenes/ui/plant_overview.tscn" id="9"]
+[ext_resource type="PackedScene" path="res://scenes/ui/controller_trends.tscn" id="10"]
 
 [node name="Main" type="Control"]
 layout_mode = 3
@@ -55,6 +56,9 @@ size_flags_vertical = 3
 script = ExtResource("1")
 
 [node name="Plant Overview" parent="RootVBox/Workspace/EditorSplit/WorkspaceTabs" instance=ExtResource("9")]
+layout_mode = 2
+
+[node name="Controller Trends" parent="RootVBox/Workspace/EditorSplit/WorkspaceTabs" instance=ExtResource("10")]
 layout_mode = 2
 
 [node name="MachineInspector" type="PanelContainer" parent="RootVBox/Workspace/EditorSplit"]
