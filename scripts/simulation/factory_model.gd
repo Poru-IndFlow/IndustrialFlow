@@ -13,6 +13,8 @@ var total_expenses := 0.0
 var revenue_per_second := 0.0
 var expenses_per_second := 0.0
 var net_cash_flow_per_second := 0.0
+var machine_economy: Dictionary = {}
+var resource_economy: Dictionary = {}
 var _next_instance_numbers: Dictionary = {}
 var _revenue_in_window := 0.0
 var _expenses_in_window := 0.0
@@ -153,7 +155,13 @@ func serialize_economy() -> Dictionary:
 	return {
 		"cash_balance": cash_balance,
 		"total_revenue": total_revenue,
-		"total_expenses": total_expenses
+		"total_expenses": total_expenses,
+		"machine_economy": _serialize_economy_accounts(
+			machine_economy
+		),
+		"resource_economy": _serialize_economy_accounts(
+			resource_economy
+		)
 	}
 
 
@@ -175,6 +183,24 @@ func restore_economy(data: Dictionary) -> void:
 	_revenue_in_window = 0.0
 	_expenses_in_window = 0.0
 	_economy_elapsed = 0.0
+	machine_economy.clear()
+	resource_economy.clear()
+	_restore_economy_accounts(
+		machine_economy,
+		data.get("machine_economy", {}) as Dictionary
+	)
+	_restore_economy_accounts(
+		resource_economy,
+		data.get("resource_economy", {}) as Dictionary
+	)
+
+
+func get_machine_economy(machine_id: String) -> Dictionary:
+	return machine_economy.get(machine_id, {}) as Dictionary
+
+
+func get_resource_economy(resource_id: String) -> Dictionary:
+	return resource_economy.get(resource_id, {}) as Dictionary
 
 
 func _account_for_machine(
@@ -191,13 +217,15 @@ func _account_for_machine(
 		"sale_prices",
 		{}
 	)
-	var purchase_expense := _calculate_transaction_value(
+	var purchase_expense := _record_resource_transactions(
 		produced,
-		purchase_prices
+		purchase_prices,
+		false
 	)
-	var sales_revenue := _calculate_transaction_value(
+	var sales_revenue := _record_resource_transactions(
 		consumed,
-		sale_prices
+		sale_prices,
+		true
 	)
 	var power_hour_cost := maxf(
 		0.0,
@@ -215,13 +243,20 @@ func _account_for_machine(
 		/ 3600.0
 	)
 
+	var machine_expense := purchase_expense + operating_expense
+	_record_machine_economy(
+		machine.instance_id,
+		sales_revenue,
+		machine_expense
+	)
 	_record_revenue(sales_revenue)
-	_record_expense(purchase_expense + operating_expense)
+	_record_expense(machine_expense)
 
 
-func _calculate_transaction_value(
+func _record_resource_transactions(
 	amounts: Dictionary,
-	prices: Dictionary
+	prices: Dictionary,
+	is_sale: bool
 ) -> float:
 	var total := 0.0
 
@@ -235,9 +270,79 @@ func _calculate_transaction_value(
 			0.0,
 			float(prices.get(resource_id, 0.0))
 		)
-		total += amount * unit_price
+		var value := amount * unit_price
+		total += value
+
+		if value > 0.0:
+			_record_resource_economy(
+				resource_id,
+				value if is_sale else 0.0,
+				0.0 if is_sale else value
+			)
 
 	return total
+
+
+func _record_machine_economy(
+	machine_id: String,
+	revenue: float,
+	expense: float
+) -> void:
+	var account := _get_economy_account(
+		machine_economy,
+		machine_id
+	)
+	_add_to_economy_account(account, revenue, expense)
+
+
+func _record_resource_economy(
+	resource_id: String,
+	revenue: float,
+	expense: float
+) -> void:
+	var account := _get_economy_account(
+		resource_economy,
+		resource_id
+	)
+	_add_to_economy_account(account, revenue, expense)
+
+
+func _get_economy_account(
+	accounts: Dictionary,
+	account_id: String
+) -> Dictionary:
+	if accounts.has(account_id):
+		return accounts[account_id] as Dictionary
+
+	var account: Dictionary = {
+		"total_revenue": 0.0,
+		"total_expenses": 0.0,
+		"revenue_per_second": 0.0,
+		"expenses_per_second": 0.0,
+		"revenue_in_window": 0.0,
+		"expenses_in_window": 0.0
+	}
+	accounts[account_id] = account
+	return account
+
+
+func _add_to_economy_account(
+	account: Dictionary,
+	revenue: float,
+	expense: float
+) -> void:
+	account["total_revenue"] = (
+		float(account.get("total_revenue", 0.0)) + revenue
+	)
+	account["total_expenses"] = (
+		float(account.get("total_expenses", 0.0)) + expense
+	)
+	account["revenue_in_window"] = (
+		float(account.get("revenue_in_window", 0.0)) + revenue
+	)
+	account["expenses_in_window"] = (
+		float(account.get("expenses_in_window", 0.0)) + expense
+	)
 
 
 func _record_revenue(amount: float) -> void:
@@ -272,12 +377,69 @@ func _advance_economy_telemetry(delta_seconds: float) -> void:
 	net_cash_flow_per_second = (
 		revenue_per_second - expenses_per_second
 	)
+	_update_economy_account_rates(machine_economy)
+	_update_economy_account_rates(resource_economy)
 	_revenue_in_window = 0.0
 	_expenses_in_window = 0.0
 	_economy_elapsed = 0.0
 
 	if event_bus != null:
 		event_bus.economy_changed.emit(self)
+
+
+func _update_economy_account_rates(accounts: Dictionary) -> void:
+	for value: Variant in accounts.values():
+		var account := value as Dictionary
+
+		if account.is_empty():
+			continue
+
+		account["revenue_per_second"] = (
+			float(account.get("revenue_in_window", 0.0))
+			/ _economy_elapsed
+		)
+		account["expenses_per_second"] = (
+			float(account.get("expenses_in_window", 0.0))
+			/ _economy_elapsed
+		)
+		account["revenue_in_window"] = 0.0
+		account["expenses_in_window"] = 0.0
+
+
+func _serialize_economy_accounts(accounts: Dictionary) -> Dictionary:
+	var result: Dictionary = {}
+
+	for key: Variant in accounts.keys():
+		var account := accounts.get(key, {}) as Dictionary
+		result[str(key)] = {
+			"total_revenue": maxf(
+				0.0,
+				float(account.get("total_revenue", 0.0))
+			),
+			"total_expenses": maxf(
+				0.0,
+				float(account.get("total_expenses", 0.0))
+			)
+		}
+
+	return result
+
+
+func _restore_economy_accounts(
+	target: Dictionary,
+	saved_accounts: Dictionary
+) -> void:
+	for key: Variant in saved_accounts.keys():
+		var saved := saved_accounts.get(key, {}) as Dictionary
+		var account := _get_economy_account(target, str(key))
+		account["total_revenue"] = maxf(
+			0.0,
+			float(saved.get("total_revenue", 0.0))
+		)
+		account["total_expenses"] = maxf(
+			0.0,
+			float(saved.get("total_expenses", 0.0))
+		)
 
 
 func _update_inventory_controllers(delta_seconds: float) -> void:
