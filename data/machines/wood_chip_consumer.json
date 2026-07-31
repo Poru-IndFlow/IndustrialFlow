@@ -3,9 +3,15 @@
   "display_name": "Wood Chip Consumer",
   "category": "processing",
   "processing_mode": "continuous",
+  "purchase_cost": 1200.0,
+  "salvage_ratio": 0.5,
   "ramp_up_seconds": 1.0,
   "ramp_down_seconds": 1.0,
   "cycle_time": 1.0,
+  "sale_prices": {
+    "wood_chips": 0.03
+  },
+  "operating_cost_per_power_hour": 4.0,
   "inputs": [
     {
       "resource": "wood_chips",

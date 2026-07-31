@@ -3,6 +3,9 @@ extends DockPanel
 
 signal machine_requested(definition_id: String)
 
+var factory: FactoryModel
+var machine_buttons: Dictionary = {}
+
 
 func _ready() -> void:
 	dock_title = "Machines"
@@ -36,19 +39,64 @@ func _ready() -> void:
 			machine_list.add_child(category_label)
 
 		var definition_id := str(definition.get("id", ""))
+		var purchase_cost := maxf(
+			0.0,
+			float(definition.get("purchase_cost", 0.0))
+		)
+		var display_name := str(
+			definition.get(
+				"display_name",
+				definition_id.capitalize()
+			)
+		)
 		var button := UIWidgets.create_action_button(
-			str(
-				definition.get(
-					"display_name",
-					definition_id.capitalize()
-				)
-			),
-			str(definition.get("description", ""))
+			"%s  ·  $%.0f" % [display_name, purchase_cost],
+			"%s\nPurchase price: $%.2f" % [
+				str(definition.get("description", "")),
+				purchase_cost
+			]
 		)
 		button.pressed.connect(
 			_on_machine_button_pressed.bind(definition_id)
 		)
 		machine_list.add_child(button)
+		machine_buttons[definition_id] = button
+
+	_update_affordability()
+
+
+func bind_factory(new_factory: FactoryModel) -> void:
+	var callback := Callable(self, "_on_economy_changed")
+
+	if factory != null and factory.event_bus != null:
+		if factory.event_bus.economy_changed.is_connected(callback):
+			factory.event_bus.economy_changed.disconnect(callback)
+
+	factory = new_factory
+
+	if factory != null and factory.event_bus != null:
+		if not factory.event_bus.economy_changed.is_connected(callback):
+			factory.event_bus.economy_changed.connect(callback)
+
+	_update_affordability()
+
+
+func _on_economy_changed(_value: Variant) -> void:
+	_update_affordability()
+
+
+func _update_affordability() -> void:
+	for key: Variant in machine_buttons.keys():
+		var definition_id := str(key)
+		var button := machine_buttons.get(definition_id) as Button
+
+		if button == null:
+			continue
+
+		button.disabled = (
+			factory != null
+			and not factory.can_afford_machine(definition_id)
+		)
 
 
 func _on_machine_button_pressed(definition_id: String) -> void:

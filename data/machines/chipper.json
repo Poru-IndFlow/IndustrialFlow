@@ -3,6 +3,8 @@
   "display_name": "Chipper",
   "category": "processing",
   "processing_mode": "continuous",
+  "purchase_cost": 2500.0,
+  "salvage_ratio": 0.5,
   "ramp_up_seconds": 3.0,
   "ramp_down_seconds": 2.0,
   "control_resource": "wood_chips",
@@ -39,6 +41,7 @@
 	}
   ],
   "idle_power_ratio": 0.15,
+  "operating_cost_per_power_hour": 12.0,
   "power_curve": [
 	{
 	  "speed": 0.0,

@@ -17,6 +17,10 @@ extends Node
 	"../RootVBox/Workspace/EditorSplit/WorkspaceTabs/Controller Trends"
 ) as ControllerTrends
 
+@onready var economy_trends := get_node(
+	"../RootVBox/Workspace/EditorSplit/WorkspaceTabs/Economy Trends"
+) as EconomyTrends
+
 @onready var workspace_tabs := get_node(
 	"../RootVBox/Workspace/EditorSplit/WorkspaceTabs"
 ) as TabContainer
@@ -119,9 +123,11 @@ func _ready() -> void:
 func set_factory(new_factory: FactoryModel) -> void:
 	factory = new_factory
 	factory_graph.bind_factory(factory)
+	machine_palette.bind_factory(factory)
 	machine_inspector.bind_factory(factory)
 	plant_overview.bind_factory(factory)
 	controller_trends.bind_factory(factory)
+	economy_trends.bind_factory(factory)
 
 	if editor_history != null:
 		editor_history.clear()
@@ -172,10 +178,17 @@ func _update_simulation_toolbar(force: bool = false) -> void:
 	)
 
 func _on_machine_requested(definition_id: String) -> void:
-	factory_graph.request_machine(definition_id)
+	if factory_graph.request_machine(definition_id):
+		editor_toolbar.show_status(
+			"Purchased %s" % definition_id.replace("_", " ").capitalize(),
+			ThemeManager.COLOR_SUCCESS
+		)
+		return
+
 	editor_toolbar.show_status(
-		"Added %s" % definition_id.replace("_", " ").capitalize(),
-		ThemeManager.COLOR_SUCCESS
+		"Insufficient cash for %s" % definition_id.replace("_", " ").capitalize(),
+		ThemeManager.COLOR_DANGER,
+		4.0
 	)
 
 func _on_machine_selected(machine: MachineModel) -> void:
@@ -204,10 +217,17 @@ func _on_delete_requested() -> void:
 	factory_graph.delete_selected_machines()
 
 
-func _on_machines_deleted(deleted_count: int) -> void:
+func _on_machines_deleted(
+	deleted_count: int,
+	salvage_value: float
+) -> void:
 	var noun := "machine" if deleted_count == 1 else "machines"
 	editor_toolbar.show_status(
-		"Deleted %d %s" % [deleted_count, noun],
+		"Sold %d %s for $%.2f" % [
+			deleted_count,
+			noun,
+			salvage_value
+		],
 		ThemeManager.COLOR_SUCCESS
 	)
 

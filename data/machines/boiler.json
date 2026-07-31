@@ -3,6 +3,8 @@
   "display_name": "Boiler",
   "category": "utility",
   "processing_mode": "continuous",
+  "purchase_cost": 3000.0,
+  "salvage_ratio": 0.5,
   "ramp_up_seconds": 5.0,
   "ramp_down_seconds": 3.0,
   "wear_per_operating_hour": 0.6,
@@ -33,6 +35,7 @@
     }
   ],
   "idle_power_ratio": 0.15,
+  "operating_cost_per_power_hour": 12.0,
   "power_curve": [
     {
       "speed": 0.0,

@@ -56,6 +56,8 @@ var production_rates_per_second: Dictionary = {}
 var consumption_rates_per_second: Dictionary = {}
 var _produced_in_window: Dictionary = {}
 var _consumed_in_window: Dictionary = {}
+var _economic_production: Dictionary = {}
+var _economic_consumption: Dictionary = {}
 var _telemetry_elapsed := 0.0
 var _last_condition_notification := 1.0
 var _last_hours_notification := 0.0
@@ -714,6 +716,10 @@ func record_produced(resource_id: String, amount: float) -> void:
 		float(_produced_in_window.get(resource_id, 0.0))
 		+ amount
 	)
+	_economic_production[resource_id] = (
+		float(_economic_production.get(resource_id, 0.0))
+		+ amount
+	)
 
 
 func record_consumed(resource_id: String, amount: float) -> void:
@@ -724,6 +730,22 @@ func record_consumed(resource_id: String, amount: float) -> void:
 		float(_consumed_in_window.get(resource_id, 0.0))
 		+ amount
 	)
+	_economic_consumption[resource_id] = (
+		float(_economic_consumption.get(resource_id, 0.0))
+		+ amount
+	)
+
+
+func drain_economic_production() -> Dictionary:
+	var result: Dictionary = _economic_production.duplicate(true)
+	_economic_production.clear()
+	return result
+
+
+func drain_economic_consumption() -> Dictionary:
+	var result: Dictionary = _economic_consumption.duplicate(true)
+	_economic_consumption.clear()
+	return result
 
 
 func advance_production_telemetry(delta_seconds: float) -> void:

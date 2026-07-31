@@ -94,6 +94,75 @@ layout_mode = 2
 size_flags_horizontal = 3
 title_text = "Power Demand"
 
+[node name="EconomyTitle" type="Label" parent="Margin/Content"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 15
+text = "Plant Economy"
+
+[node name="EconomyHelp" type="Label" parent="Margin/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.603922, 0.65098, 0.721569, 1)
+text = "Cash from actual material purchases, product sales and machine power costs."
+
+[node name="EconomyMetrics" type="GridContainer" parent="Margin/Content"]
+layout_mode = 2
+size_flags_horizontal = 3
+columns = 4
+
+[node name="CashCard" parent="Margin/Content/EconomyMetrics" instance=ExtResource("2")]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+title_text = "Cash Balance"
+
+[node name="RevenueCard" parent="Margin/Content/EconomyMetrics" instance=ExtResource("2")]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+title_text = "Revenue"
+
+[node name="ExpensesCard" parent="Margin/Content/EconomyMetrics" instance=ExtResource("2")]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+title_text = "Expenses"
+
+[node name="NetCashFlowCard" parent="Margin/Content/EconomyMetrics" instance=ExtResource("2")]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+title_text = "Net Cash Flow"
+
+[node name="MachineEconomyTitle" type="Label" parent="Margin/Content"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+text = "Machine Profitability"
+
+[node name="MachineEconomyHelp" type="Label" parent="Margin/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.603922, 0.65098, 0.721569, 1)
+text = "Revenue, material purchases and power costs by machine."
+
+[node name="MachineEconomyList" type="VBoxContainer" parent="Margin/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="ResourceEconomyTitle" type="Label" parent="Margin/Content"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+text = "Resource Trading"
+
+[node name="ResourceEconomyHelp" type="Label" parent="Margin/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.603922, 0.65098, 0.721569, 1)
+text = "Sales and purchases by material; power cost remains assigned to machines."
+
+[node name="ResourceEconomyList" type="VBoxContainer" parent="Margin/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+
 [node name="Separator" type="HSeparator" parent="Margin/Content"]
 layout_mode = 2
 

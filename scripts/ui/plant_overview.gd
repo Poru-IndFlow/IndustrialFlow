@@ -27,6 +27,12 @@ var production_signature := ""
 @onready var disabled_card := %DisabledCard as KpiCard
 @onready var connections_card := %ConnectionsCard as KpiCard
 @onready var power_card := %PowerCard as KpiCard
+@onready var cash_card := %CashCard as KpiCard
+@onready var revenue_card := %RevenueCard as KpiCard
+@onready var expenses_card := %ExpensesCard as KpiCard
+@onready var net_cash_flow_card := %NetCashFlowCard as KpiCard
+@onready var machine_economy_list := %MachineEconomyList as VBoxContainer
+@onready var resource_economy_list := %ResourceEconomyList as VBoxContainer
 @onready var alert_count_label := %AlertCountLabel as Label
 @onready var alerts_list := %AlertsList as VBoxContainer
 @onready var throughput_list := %ThroughputList as VBoxContainer
@@ -43,6 +49,10 @@ func _ready() -> void:
 	disabled_card.set_accent(ThemeManager.COLOR_DANGER)
 	connections_card.set_accent(ThemeManager.COLOR_ACCENT)
 	power_card.set_accent(ThemeManager.COLOR_WARNING)
+	cash_card.set_accent(ThemeManager.COLOR_ACCENT)
+	revenue_card.set_accent(ThemeManager.COLOR_SUCCESS)
+	expenses_card.set_accent(ThemeManager.COLOR_DANGER)
+	net_cash_flow_card.set_accent(ThemeManager.COLOR_TEXT_MUTED)
 	_request_refresh()
 
 
@@ -77,7 +87,8 @@ func _connect_factory_events() -> void:
 		factory.event_bus.machine_inventory_changed,
 		factory.event_bus.machine_production_changed,
 		factory.event_bus.machine_power_changed,
-		factory.event_bus.machine_condition_changed
+		factory.event_bus.machine_condition_changed,
+		factory.event_bus.economy_changed
 	]
 
 	for factory_signal: Signal in signals:
@@ -101,7 +112,8 @@ func _disconnect_factory_events() -> void:
 		factory.event_bus.machine_inventory_changed,
 		factory.event_bus.machine_production_changed,
 		factory.event_bus.machine_power_changed,
-		factory.event_bus.machine_condition_changed
+		factory.event_bus.machine_condition_changed,
+		factory.event_bus.economy_changed
 	]
 
 	for factory_signal: Signal in signals:
@@ -177,6 +189,7 @@ func _refresh() -> void:
 	disabled_card.set_value(str(disabled))
 	connections_card.set_value(str(connection_count))
 	power_card.set_value("%.2f PU" % total_power)
+	_update_economy()
 
 	_update_status(
 		total,
@@ -191,6 +204,138 @@ func _refresh() -> void:
 	_update_inventory(inventory_totals)
 
 
+func _update_economy() -> void:
+	if factory == null:
+		cash_card.set_value(_format_currency(0.0))
+		revenue_card.set_value("$0.00/s")
+		expenses_card.set_value("$0.00/s")
+		net_cash_flow_card.set_value("$0.00/s")
+		net_cash_flow_card.set_accent(ThemeManager.COLOR_TEXT_MUTED)
+		_update_machine_economy_breakdown()
+		_update_resource_economy_breakdown()
+		return
+
+	cash_card.set_value(_format_currency(factory.cash_balance))
+	revenue_card.set_value(
+		"%s/s" % _format_currency(factory.revenue_per_second)
+	)
+	expenses_card.set_value(
+		"%s/s" % _format_currency(factory.expenses_per_second)
+	)
+	net_cash_flow_card.set_value(
+		"%s%s/s" % [
+			"+" if factory.net_cash_flow_per_second > 0.0 else "",
+			_format_currency(factory.net_cash_flow_per_second)
+		]
+	)
+
+	if factory.net_cash_flow_per_second > 0.0:
+		net_cash_flow_card.set_accent(ThemeManager.COLOR_SUCCESS)
+	elif factory.net_cash_flow_per_second < 0.0:
+		net_cash_flow_card.set_accent(ThemeManager.COLOR_DANGER)
+	else:
+		net_cash_flow_card.set_accent(ThemeManager.COLOR_TEXT_MUTED)
+
+	_update_machine_economy_breakdown()
+	_update_resource_economy_breakdown()
+
+
+func _update_machine_economy_breakdown() -> void:
+	UIWidgets.clear_container(machine_economy_list)
+
+	if factory == null or factory.machines.is_empty():
+		machine_economy_list.add_child(
+			UIWidgets.create_empty_label("No machines available.")
+		)
+		return
+
+	var machine_ids: Array[String] = []
+
+	for key: Variant in factory.machines.keys():
+		machine_ids.append(str(key))
+
+	machine_ids.sort()
+
+	for machine_id: String in machine_ids:
+		var machine := factory.get_machine(machine_id)
+
+		if machine == null:
+			continue
+
+		machine_economy_list.add_child(
+			UIWidgets.create_labeled_value(
+				"%s (%s)" % [machine.display_name, machine_id],
+				_format_economy_account(
+					factory.get_machine_economy(machine_id)
+				)
+			)
+		)
+
+
+func _update_resource_economy_breakdown() -> void:
+	UIWidgets.clear_container(resource_economy_list)
+	var resource_ids: Array[String] = []
+
+	for definition: Dictionary in ResourceRegistry.get_all_definitions():
+		var resource_id := str(definition.get("id", ""))
+
+		if not resource_id.is_empty():
+			resource_ids.append(resource_id)
+
+	resource_ids.sort()
+
+	if resource_ids.is_empty():
+		resource_economy_list.add_child(
+			UIWidgets.create_empty_label("No resources available.")
+		)
+		return
+
+	for resource_id: String in resource_ids:
+		resource_economy_list.add_child(
+			UIWidgets.create_labeled_value(
+				ResourceRegistry.get_display_name(resource_id),
+				_format_economy_account(
+					factory.get_resource_economy(resource_id)
+					if factory != null
+					else {}
+				)
+			)
+		)
+
+
+func _format_economy_account(account: Dictionary) -> String:
+	var revenue_rate := float(
+		account.get("revenue_per_second", 0.0)
+	)
+	var expense_rate := float(
+		account.get("expenses_per_second", 0.0)
+	)
+	var total_net := (
+		float(account.get("total_revenue", 0.0))
+		- float(account.get("total_expenses", 0.0))
+	)
+	return "Net %s/s · Revenue %s/s · Expense %s/s · Lifetime %s" % [
+		_format_signed_currency(revenue_rate - expense_rate),
+		_format_currency(revenue_rate),
+		_format_currency(expense_rate),
+		_format_signed_currency(total_net)
+	]
+
+
+func _format_signed_currency(amount: float) -> String:
+	if amount > 0.0:
+		return "+%s" % _format_currency(amount)
+
+	return _format_currency(amount)
+
+
+func _format_currency(amount: float) -> String:
+	if amount < 0.0:
+		return "-$%.2f" % absf(amount)
+
+	return "$%.2f" % amount
+
+
 func _update_status(
 	total: int,
 	running: int,
@@ -198,7 +343,12 @@ func _update_status(
 	disabled: int,
 	maintenance_due: int
 ) -> void:
-	if total == 0:
+	if factory != null and factory.cash_balance < 0.0:
+		status_banner.set_status(
+			"Plant cash balance is negative.",
+			ThemeManager.COLOR_DANGER
+		)
+	elif total == 0:
 		status_banner.set_status(
 			"No machines in this plant yet.",
 			ThemeManager.COLOR_TEXT_MUTED
