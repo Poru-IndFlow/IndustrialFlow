@@ -4,6 +4,7 @@ extends RefCounted
 const DEFAULT_STARTING_CASH := 10000.0
 const ECONOMY_WINDOW_SECONDS := 1.0
 const DEFAULT_SALVAGE_RATIO := 0.5
+const MAX_ECONOMY_SAMPLES := 120
 
 var machines: Dictionary = {}
 var connections: Array[ConnectionModel] = []
@@ -16,10 +17,12 @@ var expenses_per_second := 0.0
 var net_cash_flow_per_second := 0.0
 var machine_economy: Dictionary = {}
 var resource_economy: Dictionary = {}
+var economy_samples: Array[Dictionary] = []
 var _next_instance_numbers: Dictionary = {}
 var _revenue_in_window := 0.0
 var _expenses_in_window := 0.0
 var _economy_elapsed := 0.0
+var _economy_sample_time := 0.0
 
 func _init(bus: EventBus) -> void:
 	event_bus = bus
@@ -288,6 +291,12 @@ func get_resource_economy(resource_id: String) -> Dictionary:
 	return resource_economy.get(resource_id, {}) as Dictionary
 
 
+func clear_economy_samples() -> void:
+	economy_samples.clear()
+	_economy_sample_time = 0.0
+	_emit_economy_changed()
+
+
 func _account_for_machine(
 	machine: MachineModel,
 	delta_seconds: float
@@ -525,6 +534,18 @@ func _advance_economy_telemetry(delta_seconds: float) -> void:
 	)
 	_update_economy_account_rates(machine_economy)
 	_update_economy_account_rates(resource_economy)
+	_economy_sample_time += _economy_elapsed
+	economy_samples.append({
+		"time": _economy_sample_time,
+		"cash": cash_balance,
+		"revenue": revenue_per_second,
+		"expenses": expenses_per_second,
+		"net": net_cash_flow_per_second
+	})
+
+	if economy_samples.size() > MAX_ECONOMY_SAMPLES:
+		economy_samples.pop_front()
+
 	_revenue_in_window = 0.0
 	_expenses_in_window = 0.0
 	_economy_elapsed = 0.0

@@ -17,6 +17,10 @@ extends Node
 	"../RootVBox/Workspace/EditorSplit/WorkspaceTabs/Controller Trends"
 ) as ControllerTrends
 
+@onready var economy_trends := get_node(
+	"../RootVBox/Workspace/EditorSplit/WorkspaceTabs/Economy Trends"
+) as EconomyTrends
+
 @onready var workspace_tabs := get_node(
 	"../RootVBox/Workspace/EditorSplit/WorkspaceTabs"
 ) as TabContainer
@@ -123,6 +127,7 @@ func set_factory(new_factory: FactoryModel) -> void:
 	machine_inspector.bind_factory(factory)
 	plant_overview.bind_factory(factory)
 	controller_trends.bind_factory(factory)
+	economy_trends.bind_factory(factory)
 
 	if editor_history != null:
 		editor_history.clear()
