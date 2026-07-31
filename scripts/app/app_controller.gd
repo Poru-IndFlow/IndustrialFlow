@@ -47,6 +47,7 @@ var clock: SimulationClock
 var save_dialog: FileDialog
 var load_dialog: FileDialog
 var current_project_path := ""
+var last_displayed_simulation_second := -1
 
 
 func _ready() -> void:
@@ -66,6 +67,12 @@ func _ready() -> void:
 	editor_toolbar.load_requested.connect(_on_load_requested)
 	editor_toolbar.delete_requested.connect(
 		_on_delete_requested
+	)
+	editor_toolbar.simulation_pause_requested.connect(
+		_on_simulation_pause_requested
+	)
+	editor_toolbar.simulation_speed_requested.connect(
+		_on_simulation_speed_requested
 	)
 	editor_history.history_changed.connect(
 		_on_history_changed
@@ -99,6 +106,7 @@ func _ready() -> void:
 	clock.name = "SimulationClock"
 	add_child(clock)
 	clock.tick_advanced.connect(_on_tick_advanced)
+	_update_simulation_toolbar(true)
 	editor_history.clear()
 	editor_toolbar.set_command_availability(
 		true,
@@ -123,6 +131,45 @@ func _on_tick_advanced(delta_seconds: float) -> void:
 	if factory != null:
 		factory.tick(delta_seconds)
 		controller_trends.advance(delta_seconds)
+		_update_simulation_toolbar()
+
+
+func _on_simulation_pause_requested(value: bool) -> void:
+	if clock == null:
+		return
+
+	clock.set_paused(value)
+	_update_simulation_toolbar(true)
+
+
+func _on_simulation_speed_requested(value: float) -> void:
+	if clock == null:
+		return
+
+	clock.set_simulation_speed(value)
+	_update_simulation_toolbar(true)
+
+
+func _update_simulation_toolbar(force: bool = false) -> void:
+	if clock == null:
+		return
+
+	var displayed_second := int(
+		floor(clock.elapsed_simulation_seconds)
+	)
+
+	if (
+		not force
+		and displayed_second == last_displayed_simulation_second
+	):
+		return
+
+	last_displayed_simulation_second = displayed_second
+	editor_toolbar.set_simulation_state(
+		clock.paused,
+		clock.simulation_speed,
+		clock.elapsed_simulation_seconds
+	)
 
 func _on_machine_requested(definition_id: String) -> void:
 	factory_graph.request_machine(definition_id)
@@ -239,7 +286,16 @@ func _on_save_file_selected(path: String) -> void:
 
 
 func _save_to_path(path: String) -> void:
-	var error := FactoryPersistence.save_factory(path, factory)
+	var elapsed_seconds := (
+		clock.elapsed_simulation_seconds
+		if clock != null
+		else 0.0
+	)
+	var error := FactoryPersistence.save_factory(
+		path,
+		factory,
+		elapsed_seconds
+	)
 
 	if error != OK:
 		editor_toolbar.show_status(
@@ -286,6 +342,18 @@ func _on_load_file_selected(path: String) -> void:
 	current_project_path = path
 	event_bus = loaded_event_bus
 	set_factory(loaded_factory)
+
+	if clock != null:
+		clock.set_elapsed_simulation_seconds(
+			float(
+				result.get(
+					"elapsed_simulation_seconds",
+					0.0
+				)
+			)
+		)
+		_update_simulation_toolbar(true)
+
 	editor_toolbar.show_status(
 		"Loaded %s" % path.get_file(),
 		ThemeManager.COLOR_SUCCESS

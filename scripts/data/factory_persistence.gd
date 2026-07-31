@@ -8,7 +8,8 @@ const FORMAT_VERSION := 1
 
 static func save_factory(
 	path: String,
-	factory: FactoryModel
+	factory: FactoryModel,
+	elapsed_simulation_seconds: float = 0.0
 ) -> Error:
 	if factory == null:
 		return ERR_INVALID_PARAMETER
@@ -21,6 +22,10 @@ static func save_factory(
 	var data: Dictionary = {
 		"format": FORMAT_NAME,
 		"version": FORMAT_VERSION,
+		"elapsed_simulation_seconds": maxf(
+			elapsed_simulation_seconds,
+			0.0
+		),
 		"machines": _serialize_machines(factory),
 		"connections": _serialize_connections(factory)
 	}
@@ -312,7 +317,16 @@ static func _deserialize_factory(
 	return {
 		"error": OK,
 		"message": "",
-		"factory": factory
+		"factory": factory,
+		"elapsed_simulation_seconds": maxf(
+			float(
+				data.get(
+					"elapsed_simulation_seconds",
+					0.0
+				)
+			),
+			0.0
+		)
 	}
 
 

@@ -11,7 +11,7 @@
   "controller_ki": 0.001,
   "controller_output_min": 0.0,
   "controller_output_max": 1.5,
-  "wear_per_operating_hour": 6.0,
+  "wear_per_operating_hour": 0.6,
   "minimum_condition_efficiency": 0.65,
   "maximum_wear_power_multiplier": 1.5,
   "maintenance_warning_condition": 0.75,
