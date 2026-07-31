@@ -26,6 +26,8 @@ var condition_efficiency_value_label: Label
 var wear_power_value_label: Label
 var operating_hours_value_label: Label
 var maintenance_button: Button
+var upgrade_section: VBoxContainer
+var upgrade_list: VBoxContainer
 var control_section: VBoxContainer
 var control_mode_option: OptionButton
 var inventory_setpoint_spin_box: SpinBox
@@ -334,6 +336,16 @@ func _ready() -> void:
 
 	operation_section.add_child(HSeparator.new())
 
+	upgrade_section = VBoxContainer.new()
+	operation_section.add_child(upgrade_section)
+	upgrade_section.add_child(
+		UIWidgets.create_section_header("Installed Upgrades")
+	)
+	upgrade_list = VBoxContainer.new()
+	upgrade_section.add_child(upgrade_list)
+
+	operation_section.add_child(HSeparator.new())
+
 	connection_operation_section = VBoxContainer.new()
 	connection_operation_section.visible = false
 	root.add_child(connection_operation_section)
@@ -442,6 +454,15 @@ func bind_factory(new_factory: FactoryModel) -> void:
 	factory.event_bus.machine_condition_changed.connect(
 		_on_machine_condition_changed
 	)
+	factory.event_bus.machine_upgrades_changed.connect(
+		_on_machine_upgrades_changed
+	)
+	factory.event_bus.research_changed.connect(
+		_on_research_changed
+	)
+	factory.event_bus.economy_changed.connect(
+		_on_economy_changed
+	)
 	factory.event_bus.connection_flow_changed.connect(
 		_on_connection_changed
 	)
@@ -501,6 +522,18 @@ func _disconnect_factory_signals() -> void:
 		self,
 		"_on_machine_condition_changed"
 	)
+	var upgrades_callback := Callable(
+		self,
+		"_on_machine_upgrades_changed"
+	)
+	var research_callback := Callable(
+		self,
+		"_on_research_changed"
+	)
+	var economy_callback := Callable(
+		self,
+		"_on_economy_changed"
+	)
 	var connection_callback := Callable(
 		self,
 		"_on_connection_changed"
@@ -559,6 +592,27 @@ func _disconnect_factory_signals() -> void:
 			condition_callback
 		)
 
+	if factory.event_bus.machine_upgrades_changed.is_connected(
+		upgrades_callback
+	):
+		factory.event_bus.machine_upgrades_changed.disconnect(
+			upgrades_callback
+		)
+
+	if factory.event_bus.research_changed.is_connected(
+		research_callback
+	):
+		factory.event_bus.research_changed.disconnect(
+			research_callback
+		)
+
+	if factory.event_bus.economy_changed.is_connected(
+		economy_callback
+	):
+		factory.event_bus.economy_changed.disconnect(
+			economy_callback
+		)
+
 	if factory.event_bus.machine_removed.is_connected(
 		removed_callback
 	):
@@ -613,6 +667,21 @@ func _on_machine_condition_changed(machine: MachineModel) -> void:
 		_update_condition_labels()
 		_update_performance_labels()
 		_update_power_labels()
+
+
+func _on_machine_upgrades_changed(machine: MachineModel) -> void:
+	if machine == selected_machine:
+		_update_upgrade_section()
+		_update_performance_labels()
+		_update_power_labels()
+
+
+func _on_research_changed(_value: Variant) -> void:
+	_update_upgrade_section()
+
+
+func _on_economy_changed(_value: Variant) -> void:
+	_update_upgrade_section()
 
 
 func _on_machine_removed(machine_id: String) -> void:
@@ -676,6 +745,7 @@ func _refresh() -> void:
 		power_mode_value_label.text = "Off"
 		maintenance_section.visible = false
 		control_section.visible = false
+		upgrade_section.visible = false
 		updating_controls = false
 		UIWidgets.update_status_badge(
 			state_badge,
@@ -712,6 +782,9 @@ func _refresh() -> void:
 	control_section.visible = (
 		selected_machine.supports_inventory_control()
 	)
+	upgrade_section.visible = not ResearchRegistry.get_for_machine(
+		selected_machine.definition_id
+	).is_empty()
 	control_mode_option.select(
 		control_mode_option.get_item_index(
 			selected_machine.control_mode
@@ -731,6 +804,7 @@ func _refresh() -> void:
 	_update_power_labels()
 	_update_condition_labels()
 	_update_control_labels()
+	_update_upgrade_section()
 	updating_controls = false
 	UIWidgets.update_status_badge(
 		state_badge,
@@ -747,6 +821,78 @@ func _refresh() -> void:
 		selected_machine.definition.get("outputs", [])
 	)
 	_populate_inventory()
+
+
+func _update_upgrade_section() -> void:
+	if upgrade_section == null or upgrade_list == null:
+		return
+
+	UIWidgets.clear_container(upgrade_list)
+
+	if selected_machine == null or factory == null:
+		upgrade_section.visible = false
+		return
+
+	var definitions := ResearchRegistry.get_for_machine(
+		selected_machine.definition_id
+	)
+	upgrade_section.visible = not definitions.is_empty()
+
+	for definition: Dictionary in definitions:
+		var research_id := str(definition.get("id", ""))
+		var installed := selected_machine.has_upgrade(research_id)
+		var researched := factory.is_researched(research_id)
+		var installation_cost := maxf(
+			0.0,
+			float(definition.get("installation_cost", 0.0))
+		)
+		var status := Label.new()
+		status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+
+		if installed:
+			status.text = "%s — Installed" % str(
+				definition.get("display_name", research_id)
+			)
+			status.modulate = ThemeManager.COLOR_SUCCESS
+		elif not researched:
+			status.text = "%s — Research required" % str(
+				definition.get("display_name", research_id)
+			)
+			status.modulate = ThemeManager.COLOR_TEXT_MUTED
+		else:
+			status.text = "%s — Available" % str(
+				definition.get("display_name", research_id)
+			)
+			status.modulate = ThemeManager.COLOR_ACCENT
+
+		upgrade_list.add_child(status)
+
+		var button := Button.new()
+		button.text = (
+			"Installed"
+			if installed
+			else "Install — $%.2f" % installation_cost
+		)
+		button.disabled = (
+			installed
+			or not researched
+			or not factory.can_install_upgrade(
+				selected_machine,
+				research_id
+			)
+		)
+		button.pressed.connect(
+			_on_install_upgrade_pressed.bind(research_id)
+		)
+		upgrade_list.add_child(button)
+
+
+func _on_install_upgrade_pressed(research_id: String) -> void:
+	if factory != null and selected_machine != null:
+		factory.install_machine_upgrade(
+			selected_machine,
+			research_id
+		)
 
 
 func _update_performance_labels() -> void:

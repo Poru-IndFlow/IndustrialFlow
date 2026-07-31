@@ -1,0 +1,11 @@
+{
+  "id": "efficient_chipping",
+  "display_name": "Efficient Chipping",
+  "description": "Refined cutter geometry and drive controls reduce Chipper power demand without reducing throughput.",
+  "target_machine_id": "chipper",
+  "research_cost": 2000.0,
+  "installation_cost": 750.0,
+  "effects": {
+    "power_multiplier": 0.85
+  }
+}
