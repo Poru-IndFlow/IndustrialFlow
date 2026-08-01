@@ -49,6 +49,9 @@ var maintenance_total_seconds := 0.0
 var emergency_repair_cost := 0.0
 var emergency_repair_duration_seconds := 0.0
 var maintenance_is_emergency := false
+var maintenance_policy_enabled := false
+var maintenance_policy_condition := 0.75
+var maintenance_policy_cash_reserve := 0.0
 var preventive_maintenance_count := 0
 var failure_count := 0
 var emergency_repair_count := 0
@@ -164,6 +167,7 @@ static func create(
 		0.0,
 		machine.maintenance_warning_condition
 	)
+	machine.maintenance_policy_condition = machine.maintenance_warning_condition
 	machine.maintenance_cost = maxf(
 		0.0,
 		float(machine_definition.get("maintenance_cost", 0.0))
@@ -533,6 +537,34 @@ func can_start_maintenance() -> bool:
 		and not is_under_maintenance()
 		and condition < 0.999
 	)
+
+
+func set_maintenance_policy_enabled(value: bool) -> void:
+	if maintenance_policy_enabled == value:
+		return
+
+	maintenance_policy_enabled = value
+	notify_settings_changed()
+
+
+func set_maintenance_policy_condition(value: float) -> void:
+	var new_value := clampf(value, 0.01, 0.99)
+
+	if is_equal_approx(maintenance_policy_condition, new_value):
+		return
+
+	maintenance_policy_condition = new_value
+	notify_settings_changed()
+
+
+func set_maintenance_policy_cash_reserve(value: float) -> void:
+	var new_value := maxf(value, 0.0)
+
+	if is_equal_approx(maintenance_policy_cash_reserve, new_value):
+		return
+
+	maintenance_policy_cash_reserve = new_value
+	notify_settings_changed()
 
 
 func start_maintenance() -> bool:

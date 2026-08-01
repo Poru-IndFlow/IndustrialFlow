@@ -26,6 +26,10 @@ var condition_efficiency_value_label: Label
 var wear_power_value_label: Label
 var operating_hours_value_label: Label
 var maintenance_plan_value_label: Label
+var maintenance_policy_check_box: CheckBox
+var maintenance_policy_condition_spin_box: SpinBox
+var maintenance_policy_cash_reserve_spin_box: SpinBox
+var maintenance_policy_status_value_label: Label
 var preventive_maintenance_value_label: Label
 var emergency_repairs_value_label: Label
 var maintenance_spend_value_label: Label
@@ -219,6 +223,60 @@ func _ready() -> void:
 		maintenance_plan_row
 	)
 	maintenance_section.add_child(maintenance_plan_row)
+
+	maintenance_policy_check_box = CheckBox.new()
+	maintenance_policy_check_box.text = "Automatic preventive maintenance"
+	maintenance_policy_check_box.toggled.connect(
+		_on_maintenance_policy_toggled
+	)
+	maintenance_section.add_child(maintenance_policy_check_box)
+
+	var policy_condition_row := HBoxContainer.new()
+	maintenance_section.add_child(policy_condition_row)
+
+	var policy_condition_label := Label.new()
+	policy_condition_label.text = "Service threshold"
+	policy_condition_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	policy_condition_row.add_child(policy_condition_label)
+
+	maintenance_policy_condition_spin_box = SpinBox.new()
+	maintenance_policy_condition_spin_box.custom_minimum_size = Vector2(135, 0)
+	maintenance_policy_condition_spin_box.min_value = 1.0
+	maintenance_policy_condition_spin_box.max_value = 99.0
+	maintenance_policy_condition_spin_box.step = 1.0
+	maintenance_policy_condition_spin_box.suffix = "%"
+	maintenance_policy_condition_spin_box.value_changed.connect(
+		_on_maintenance_policy_condition_changed
+	)
+	policy_condition_row.add_child(maintenance_policy_condition_spin_box)
+
+	var policy_reserve_row := HBoxContainer.new()
+	maintenance_section.add_child(policy_reserve_row)
+
+	var policy_reserve_label := Label.new()
+	policy_reserve_label.text = "Minimum cash reserve"
+	policy_reserve_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	policy_reserve_row.add_child(policy_reserve_label)
+
+	maintenance_policy_cash_reserve_spin_box = SpinBox.new()
+	maintenance_policy_cash_reserve_spin_box.custom_minimum_size = Vector2(135, 0)
+	maintenance_policy_cash_reserve_spin_box.min_value = 0.0
+	maintenance_policy_cash_reserve_spin_box.max_value = 1000000000.0
+	maintenance_policy_cash_reserve_spin_box.step = 100.0
+	maintenance_policy_cash_reserve_spin_box.prefix = "$"
+	maintenance_policy_cash_reserve_spin_box.value_changed.connect(
+		_on_maintenance_policy_cash_reserve_changed
+	)
+	policy_reserve_row.add_child(maintenance_policy_cash_reserve_spin_box)
+
+	var policy_status_row := UIWidgets.create_labeled_value(
+		"Policy status",
+		"Manual"
+	)
+	maintenance_policy_status_value_label = UIWidgets.get_value_label(
+		policy_status_row
+	)
+	maintenance_section.add_child(policy_status_row)
 
 	var preventive_maintenance_row := UIWidgets.create_labeled_value(
 		"Preventive services",
@@ -1039,6 +1097,10 @@ func _update_condition_labels() -> void:
 		or wear_power_value_label == null
 		or operating_hours_value_label == null
 		or maintenance_plan_value_label == null
+		or maintenance_policy_check_box == null
+		or maintenance_policy_condition_spin_box == null
+		or maintenance_policy_cash_reserve_spin_box == null
+		or maintenance_policy_status_value_label == null
 		or preventive_maintenance_value_label == null
 		or emergency_repairs_value_label == null
 		or maintenance_spend_value_label == null
@@ -1054,6 +1116,13 @@ func _update_condition_labels() -> void:
 		wear_power_value_label.text = "1.00×"
 		operating_hours_value_label.text = "0.00 h"
 		maintenance_plan_value_label.text = "—"
+		maintenance_policy_check_box.button_pressed = false
+		maintenance_policy_check_box.disabled = true
+		maintenance_policy_condition_spin_box.value = 75.0
+		maintenance_policy_condition_spin_box.editable = false
+		maintenance_policy_cash_reserve_spin_box.value = 0.0
+		maintenance_policy_cash_reserve_spin_box.editable = false
+		maintenance_policy_status_value_label.text = "Manual"
 		preventive_maintenance_value_label.text = "0"
 		emergency_repairs_value_label.text = "0 / 0"
 		maintenance_spend_value_label.text = "$0.00"
@@ -1090,6 +1159,25 @@ func _update_condition_labels() -> void:
 		selected_machine.get_current_maintenance_cost(),
 		selected_machine.get_current_maintenance_duration()
 	]
+	maintenance_policy_check_box.button_pressed = (
+		selected_machine.maintenance_policy_enabled
+	)
+	maintenance_policy_check_box.disabled = false
+	maintenance_policy_condition_spin_box.value = (
+		selected_machine.maintenance_policy_condition * 100.0
+	)
+	maintenance_policy_condition_spin_box.editable = (
+		selected_machine.maintenance_policy_enabled
+	)
+	maintenance_policy_cash_reserve_spin_box.value = (
+		selected_machine.maintenance_policy_cash_reserve
+	)
+	maintenance_policy_cash_reserve_spin_box.editable = (
+		selected_machine.maintenance_policy_enabled
+	)
+	maintenance_policy_status_value_label.text = _maintenance_policy_status(
+		selected_machine
+	)
 	preventive_maintenance_value_label.text = str(
 		selected_machine.preventive_maintenance_count
 	)
@@ -1390,6 +1478,55 @@ func _on_maintenance_pressed() -> void:
 	factory.start_machine_maintenance(selected_machine)
 
 
+func _on_maintenance_policy_toggled(enabled: bool) -> void:
+	if updating_controls or selected_machine == null:
+		return
+
+	var previous_value := selected_machine.maintenance_policy_enabled
+
+	if previous_value == enabled:
+		return
+
+	_execute_setting_action(
+		"set automatic maintenance policy",
+		selected_machine.set_maintenance_policy_enabled.bind(enabled),
+		selected_machine.set_maintenance_policy_enabled.bind(previous_value)
+	)
+
+
+func _on_maintenance_policy_condition_changed(percent: float) -> void:
+	if updating_controls or selected_machine == null:
+		return
+
+	var value := percent / 100.0
+	var previous_value := selected_machine.maintenance_policy_condition
+
+	if is_equal_approx(previous_value, value):
+		return
+
+	_execute_setting_action(
+		"set maintenance threshold",
+		selected_machine.set_maintenance_policy_condition.bind(value),
+		selected_machine.set_maintenance_policy_condition.bind(previous_value)
+	)
+
+
+func _on_maintenance_policy_cash_reserve_changed(value: float) -> void:
+	if updating_controls or selected_machine == null:
+		return
+
+	var previous_value := selected_machine.maintenance_policy_cash_reserve
+
+	if is_equal_approx(previous_value, value):
+		return
+
+	_execute_setting_action(
+		"set maintenance cash reserve",
+		selected_machine.set_maintenance_policy_cash_reserve.bind(value),
+		selected_machine.set_maintenance_policy_cash_reserve.bind(previous_value)
+	)
+
+
 func _populate_resource_section(
 	container: VBoxContainer,
 	entries: Array
@@ -1480,6 +1617,31 @@ func _format_duration(seconds: float) -> String:
 		return "%.1f min" % (seconds / 60.0)
 
 	return "%.2f h" % (seconds / 3600.0)
+
+
+func _maintenance_policy_status(machine: MachineModel) -> String:
+	if not machine.maintenance_policy_enabled:
+		return "Manual"
+
+	if machine.is_under_maintenance():
+		return "Maintenance in progress"
+
+	if machine.is_failed():
+		return "Emergency repair required"
+
+	if machine.condition > machine.maintenance_policy_condition:
+		return "Armed"
+
+	if factory == null:
+		return "Waiting for factory"
+
+	if (
+		factory.cash_balance - machine.maintenance_cost
+		< machine.maintenance_policy_cash_reserve
+	):
+		return "Waiting for funds"
+
+	return "Scheduling service"
 
 
 func _condition_text(machine: MachineModel) -> String:

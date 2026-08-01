@@ -30,6 +30,7 @@ var production_signature := ""
 @onready var maintenance_card := %MaintenanceCard as KpiCard
 @onready var failed_card := %FailedCard as KpiCard
 @onready var preventive_services_card := %PreventiveServicesCard as KpiCard
+@onready var automatic_policies_card := %AutomaticPoliciesCard as KpiCard
 @onready var total_failures_card := %TotalFailuresCard as KpiCard
 @onready var emergency_repairs_card := %EmergencyRepairsCard as KpiCard
 @onready var maintenance_spend_card := %MaintenanceSpendCard as KpiCard
@@ -60,6 +61,7 @@ func _ready() -> void:
 	maintenance_card.set_accent(ThemeManager.COLOR_ACCENT)
 	failed_card.set_accent(ThemeManager.COLOR_DANGER)
 	preventive_services_card.set_accent(ThemeManager.COLOR_SUCCESS)
+	automatic_policies_card.set_accent(ThemeManager.COLOR_ACCENT)
 	total_failures_card.set_accent(ThemeManager.COLOR_DANGER)
 	emergency_repairs_card.set_accent(ThemeManager.COLOR_WARNING)
 	maintenance_spend_card.set_accent(ThemeManager.COLOR_WARNING)
@@ -169,6 +171,7 @@ func _refresh() -> void:
 	var connection_count := 0
 	var total_power := 0.0
 	var preventive_services := 0
+	var automatic_policies := 0
 	var total_failures := 0
 	var emergency_repairs := 0
 	var maintenance_spend := 0.0
@@ -188,6 +191,8 @@ func _refresh() -> void:
 
 			total_power += machine.power_demand
 			preventive_services += machine.preventive_maintenance_count
+			if machine.maintenance_policy_enabled:
+				automatic_policies += 1
 			total_failures += machine.failure_count
 			emergency_repairs += machine.emergency_repair_count
 			maintenance_spend += machine.maintenance_spend
@@ -231,6 +236,7 @@ func _refresh() -> void:
 	maintenance_card.set_value(str(maintenance_active))
 	failed_card.set_value(str(failed))
 	preventive_services_card.set_value(str(preventive_services))
+	automatic_policies_card.set_value(str(automatic_policies))
 	total_failures_card.set_value(str(total_failures))
 	emergency_repairs_card.set_value(str(emergency_repairs))
 	maintenance_spend_card.set_value(_format_currency(maintenance_spend))
@@ -878,6 +884,7 @@ func _is_alert_machine(machine: MachineModel) -> bool:
 			MachineModel.State.FAILED
 		]
 		or machine.is_maintenance_due()
+		or _is_policy_waiting_for_funds(machine)
 	)
 
 
@@ -903,22 +910,30 @@ func _alert_priority(machine: MachineModel) -> int:
 	if machine.state == MachineModel.State.DISABLED:
 		return 1
 
-	if machine.is_maintenance_critical():
+	if _is_policy_waiting_for_funds(machine):
 		return 2
 
-	if machine.is_under_maintenance():
+	if machine.is_maintenance_critical():
 		return 3
+
+	if machine.is_under_maintenance():
+		return 4
 
 	if machine.state in [
 		MachineModel.State.BLOCKED_INPUT,
 		MachineModel.State.BLOCKED_OUTPUT
 	]:
-		return 4
+		return 5
 
-	return 5
+	return 6
 
 
 func _alert_detail(machine: MachineModel) -> String:
+	if _is_policy_waiting_for_funds(machine):
+		return "Automatic maintenance waiting for funds — reserve $%.2f" % (
+			machine.maintenance_policy_cash_reserve
+		)
+
 	match machine.state:
 		MachineModel.State.MAINTENANCE:
 			return "%s — %.1f s remaining" % [
@@ -941,6 +956,20 @@ func _alert_detail(machine: MachineModel) -> String:
 
 	return "Maintenance due — %.1f%% condition" % (
 		machine.condition * 100.0
+	)
+
+
+func _is_policy_waiting_for_funds(machine: MachineModel) -> bool:
+	return (
+		factory != null
+		and machine.maintenance_policy_enabled
+		and not machine.is_under_maintenance()
+		and not machine.is_failed()
+		and machine.condition <= machine.maintenance_policy_condition
+		and (
+			factory.cash_balance - machine.maintenance_cost
+			< machine.maintenance_policy_cash_reserve
+		)
 	)
 
 

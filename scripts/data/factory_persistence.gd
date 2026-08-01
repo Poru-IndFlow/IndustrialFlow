@@ -121,6 +121,9 @@ static func _serialize_machines(factory: FactoryModel) -> Array[Dictionary]:
 			"maintenance_remaining_seconds": machine.maintenance_remaining_seconds,
 			"maintenance_total_seconds": machine.maintenance_total_seconds,
 			"maintenance_is_emergency": machine.maintenance_is_emergency,
+			"maintenance_policy_enabled": machine.maintenance_policy_enabled,
+			"maintenance_policy_condition": machine.maintenance_policy_condition,
+			"maintenance_policy_cash_reserve": machine.maintenance_policy_cash_reserve,
 			"preventive_maintenance_count": machine.preventive_maintenance_count,
 			"failure_count": machine.failure_count,
 			"emergency_repair_count": machine.emergency_repair_count,
@@ -260,6 +263,23 @@ static func _deserialize_factory(
 			float(entry.get("condition", 1.0)),
 			0.0,
 			1.0
+		)
+		machine.maintenance_policy_enabled = bool(
+			entry.get("maintenance_policy_enabled", false)
+		)
+		machine.maintenance_policy_condition = clampf(
+			float(
+				entry.get(
+					"maintenance_policy_condition",
+					machine.maintenance_warning_condition
+				)
+			),
+			0.01,
+			0.99
+		)
+		machine.maintenance_policy_cash_reserve = maxf(
+			0.0,
+			float(entry.get("maintenance_policy_cash_reserve", 0.0))
 		)
 		machine.operating_hours = maxf(
 			0.0,
