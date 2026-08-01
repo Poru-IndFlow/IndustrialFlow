@@ -49,6 +49,12 @@ var maintenance_total_seconds := 0.0
 var emergency_repair_cost := 0.0
 var emergency_repair_duration_seconds := 0.0
 var maintenance_is_emergency := false
+var preventive_maintenance_count := 0
+var failure_count := 0
+var emergency_repair_count := 0
+var maintenance_spend := 0.0
+var maintenance_downtime_seconds := 0.0
+var failed_downtime_seconds := 0.0
 var control_mode := ControlMode.MANUAL
 var control_resource := ""
 var inventory_setpoint := 0.0
@@ -286,6 +292,7 @@ func tick(delta_seconds: float) -> void:
 	if is_failed():
 		actual_operating_rate = 0.0
 		set_state(State.FAILED)
+		_advance_failed_downtime(delta_seconds)
 		_update_power_demand()
 		return
 
@@ -535,6 +542,13 @@ func start_maintenance() -> bool:
 	maintenance_is_emergency = is_failed()
 	maintenance_total_seconds = get_current_maintenance_duration()
 	maintenance_remaining_seconds = maintenance_total_seconds
+	maintenance_spend += get_current_maintenance_cost()
+
+	if maintenance_is_emergency:
+		emergency_repair_count += 1
+	else:
+		preventive_maintenance_count += 1
+
 	actual_operating_rate = 0.0
 	set_state(State.MAINTENANCE)
 	_update_power_demand()
@@ -577,6 +591,8 @@ func _advance_maintenance(delta_seconds: float) -> void:
 	if delta_seconds <= 0.0 or not is_under_maintenance():
 		return
 
+	var elapsed := minf(delta_seconds, maintenance_remaining_seconds)
+	maintenance_downtime_seconds += elapsed
 	maintenance_remaining_seconds = maxf(
 		0.0,
 		maintenance_remaining_seconds - delta_seconds
@@ -592,6 +608,21 @@ func _advance_maintenance(delta_seconds: float) -> void:
 	set_state(State.DISABLED if not enabled else State.IDLE)
 	notify_condition_changed()
 	_notify_maintenance_changed()
+
+
+func _advance_failed_downtime(delta_seconds: float) -> void:
+	if delta_seconds <= 0.0:
+		return
+
+	var previous_whole_seconds := floori(failed_downtime_seconds)
+	failed_downtime_seconds += delta_seconds
+
+	if floori(failed_downtime_seconds) != previous_whole_seconds:
+		_notify_maintenance_changed()
+
+
+func get_total_downtime_seconds() -> float:
+	return maintenance_downtime_seconds + failed_downtime_seconds
 
 
 func _notify_maintenance_changed() -> void:
@@ -624,6 +655,7 @@ func _advance_wear(delta_seconds: float) -> void:
 	if condition <= 0.0:
 		condition = 0.0
 		actual_operating_rate = 0.0
+		failure_count += 1
 		set_state(State.FAILED)
 
 	if (

@@ -29,6 +29,12 @@ var production_signature := ""
 @onready var power_card := %PowerCard as KpiCard
 @onready var maintenance_card := %MaintenanceCard as KpiCard
 @onready var failed_card := %FailedCard as KpiCard
+@onready var preventive_services_card := %PreventiveServicesCard as KpiCard
+@onready var total_failures_card := %TotalFailuresCard as KpiCard
+@onready var emergency_repairs_card := %EmergencyRepairsCard as KpiCard
+@onready var maintenance_spend_card := %MaintenanceSpendCard as KpiCard
+@onready var maintenance_downtime_card := %MaintenanceDowntimeCard as KpiCard
+@onready var failed_downtime_card := %FailedDowntimeCard as KpiCard
 @onready var cash_card := %CashCard as KpiCard
 @onready var revenue_card := %RevenueCard as KpiCard
 @onready var expenses_card := %ExpensesCard as KpiCard
@@ -53,6 +59,12 @@ func _ready() -> void:
 	power_card.set_accent(ThemeManager.COLOR_WARNING)
 	maintenance_card.set_accent(ThemeManager.COLOR_ACCENT)
 	failed_card.set_accent(ThemeManager.COLOR_DANGER)
+	preventive_services_card.set_accent(ThemeManager.COLOR_SUCCESS)
+	total_failures_card.set_accent(ThemeManager.COLOR_DANGER)
+	emergency_repairs_card.set_accent(ThemeManager.COLOR_WARNING)
+	maintenance_spend_card.set_accent(ThemeManager.COLOR_WARNING)
+	maintenance_downtime_card.set_accent(ThemeManager.COLOR_ACCENT)
+	failed_downtime_card.set_accent(ThemeManager.COLOR_DANGER)
 	cash_card.set_accent(ThemeManager.COLOR_ACCENT)
 	revenue_card.set_accent(ThemeManager.COLOR_SUCCESS)
 	expenses_card.set_accent(ThemeManager.COLOR_DANGER)
@@ -156,6 +168,12 @@ func _refresh() -> void:
 	var failed := 0
 	var connection_count := 0
 	var total_power := 0.0
+	var preventive_services := 0
+	var total_failures := 0
+	var emergency_repairs := 0
+	var maintenance_spend := 0.0
+	var maintenance_downtime := 0.0
+	var failed_downtime := 0.0
 	var inventory_totals: Dictionary = {}
 
 	if factory != null:
@@ -169,6 +187,12 @@ func _refresh() -> void:
 				continue
 
 			total_power += machine.power_demand
+			preventive_services += machine.preventive_maintenance_count
+			total_failures += machine.failure_count
+			emergency_repairs += machine.emergency_repair_count
+			maintenance_spend += machine.maintenance_spend
+			maintenance_downtime += machine.maintenance_downtime_seconds
+			failed_downtime += machine.failed_downtime_seconds
 
 			if machine.is_maintenance_due():
 				maintenance_due += 1
@@ -206,6 +230,12 @@ func _refresh() -> void:
 	power_card.set_value("%.2f PU" % total_power)
 	maintenance_card.set_value(str(maintenance_active))
 	failed_card.set_value(str(failed))
+	preventive_services_card.set_value(str(preventive_services))
+	total_failures_card.set_value(str(total_failures))
+	emergency_repairs_card.set_value(str(emergency_repairs))
+	maintenance_spend_card.set_value(_format_currency(maintenance_spend))
+	maintenance_downtime_card.set_value(_format_duration(maintenance_downtime))
+	failed_downtime_card.set_value(_format_duration(failed_downtime))
 	_update_economy()
 
 	_update_status(
@@ -353,6 +383,16 @@ func _format_currency(amount: float) -> String:
 		return "-$%.2f" % absf(amount)
 
 	return "$%.2f" % amount
+
+
+func _format_duration(seconds: float) -> String:
+	if seconds < 60.0:
+		return "%.0f s" % seconds
+
+	if seconds < 3600.0:
+		return "%.1f min" % (seconds / 60.0)
+
+	return "%.2f h" % (seconds / 3600.0)
 
 
 func _update_status(

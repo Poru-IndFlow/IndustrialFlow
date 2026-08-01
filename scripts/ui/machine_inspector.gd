@@ -26,6 +26,10 @@ var condition_efficiency_value_label: Label
 var wear_power_value_label: Label
 var operating_hours_value_label: Label
 var maintenance_plan_value_label: Label
+var preventive_maintenance_value_label: Label
+var emergency_repairs_value_label: Label
+var maintenance_spend_value_label: Label
+var downtime_value_label: Label
 var maintenance_progress_bar: ProgressBar
 var maintenance_button: Button
 var upgrade_section: VBoxContainer
@@ -215,6 +219,40 @@ func _ready() -> void:
 		maintenance_plan_row
 	)
 	maintenance_section.add_child(maintenance_plan_row)
+
+	var preventive_maintenance_row := UIWidgets.create_labeled_value(
+		"Preventive services",
+		"0"
+	)
+	preventive_maintenance_value_label = UIWidgets.get_value_label(
+		preventive_maintenance_row
+	)
+	maintenance_section.add_child(preventive_maintenance_row)
+
+	var emergency_repairs_row := UIWidgets.create_labeled_value(
+		"Failures / emergency repairs",
+		"0 / 0"
+	)
+	emergency_repairs_value_label = UIWidgets.get_value_label(
+		emergency_repairs_row
+	)
+	maintenance_section.add_child(emergency_repairs_row)
+
+	var maintenance_spend_row := UIWidgets.create_labeled_value(
+		"Maintenance spend",
+		"$0.00"
+	)
+	maintenance_spend_value_label = UIWidgets.get_value_label(
+		maintenance_spend_row
+	)
+	maintenance_section.add_child(maintenance_spend_row)
+
+	var downtime_row := UIWidgets.create_labeled_value(
+		"Total downtime",
+		"0 s"
+	)
+	downtime_value_label = UIWidgets.get_value_label(downtime_row)
+	maintenance_section.add_child(downtime_row)
 
 	maintenance_progress_bar = ProgressBar.new()
 	maintenance_progress_bar.min_value = 0.0
@@ -1001,6 +1039,10 @@ func _update_condition_labels() -> void:
 		or wear_power_value_label == null
 		or operating_hours_value_label == null
 		or maintenance_plan_value_label == null
+		or preventive_maintenance_value_label == null
+		or emergency_repairs_value_label == null
+		or maintenance_spend_value_label == null
+		or downtime_value_label == null
 		or maintenance_progress_bar == null
 		or maintenance_button == null
 	):
@@ -1012,6 +1054,10 @@ func _update_condition_labels() -> void:
 		wear_power_value_label.text = "1.00×"
 		operating_hours_value_label.text = "0.00 h"
 		maintenance_plan_value_label.text = "—"
+		preventive_maintenance_value_label.text = "0"
+		emergency_repairs_value_label.text = "0 / 0"
+		maintenance_spend_value_label.text = "$0.00"
+		downtime_value_label.text = "0 s"
 		maintenance_progress_bar.value = 0.0
 		maintenance_progress_bar.visible = false
 		maintenance_button.text = "Perform Maintenance"
@@ -1044,6 +1090,19 @@ func _update_condition_labels() -> void:
 		selected_machine.get_current_maintenance_cost(),
 		selected_machine.get_current_maintenance_duration()
 	]
+	preventive_maintenance_value_label.text = str(
+		selected_machine.preventive_maintenance_count
+	)
+	emergency_repairs_value_label.text = "%d / %d" % [
+		selected_machine.failure_count,
+		selected_machine.emergency_repair_count
+	]
+	maintenance_spend_value_label.text = "$%.2f" % (
+		selected_machine.maintenance_spend
+	)
+	downtime_value_label.text = _format_duration(
+		selected_machine.get_total_downtime_seconds()
+	)
 	maintenance_progress_bar.visible = (
 		selected_machine.is_under_maintenance()
 	)
@@ -1411,6 +1470,16 @@ func _state_color(state: MachineModel.State) -> Color:
 			return ThemeManager.COLOR_DANGER
 		_:
 			return ThemeManager.COLOR_ACCENT
+
+
+func _format_duration(seconds: float) -> String:
+	if seconds < 60.0:
+		return "%.0f s" % seconds
+
+	if seconds < 3600.0:
+		return "%.1f min" % (seconds / 60.0)
+
+	return "%.2f h" % (seconds / 3600.0)
 
 
 func _condition_text(machine: MachineModel) -> String:

@@ -121,6 +121,12 @@ static func _serialize_machines(factory: FactoryModel) -> Array[Dictionary]:
 			"maintenance_remaining_seconds": machine.maintenance_remaining_seconds,
 			"maintenance_total_seconds": machine.maintenance_total_seconds,
 			"maintenance_is_emergency": machine.maintenance_is_emergency,
+			"preventive_maintenance_count": machine.preventive_maintenance_count,
+			"failure_count": machine.failure_count,
+			"emergency_repair_count": machine.emergency_repair_count,
+			"maintenance_spend": machine.maintenance_spend,
+			"maintenance_downtime_seconds": machine.maintenance_downtime_seconds,
+			"failed_downtime_seconds": machine.failed_downtime_seconds,
 			"state": int(machine.state),
 			"cycle_progress": machine.cycle_progress,
 			"inventory": machine.inventory.amounts.duplicate(true)
@@ -258,6 +264,56 @@ static func _deserialize_factory(
 		machine.operating_hours = maxf(
 			0.0,
 			float(entry.get("operating_hours", 0.0))
+		)
+		machine.preventive_maintenance_count = maxi(
+			0,
+			int(
+				entry.get(
+					"preventive_maintenance_count",
+					1
+					if (
+						float(entry.get("maintenance_remaining_seconds", 0.0)) > 0.0
+						and not bool(entry.get("maintenance_is_emergency", false))
+					)
+					else 0
+				)
+			)
+		)
+		machine.failure_count = maxi(
+			0,
+			int(entry.get("failure_count", 1 if machine.condition <= 0.0 else 0))
+		)
+		machine.emergency_repair_count = maxi(
+			0,
+			int(
+				entry.get(
+					"emergency_repair_count",
+					1 if bool(entry.get("maintenance_is_emergency", false)) else 0
+				)
+			)
+		)
+		machine.maintenance_spend = maxf(
+			0.0,
+			float(
+				entry.get(
+					"maintenance_spend",
+					(
+						machine.emergency_repair_cost
+						if bool(entry.get("maintenance_is_emergency", false))
+						else machine.maintenance_cost
+					)
+					if float(entry.get("maintenance_remaining_seconds", 0.0)) > 0.0
+					else 0.0
+				)
+			)
+		)
+		machine.maintenance_downtime_seconds = maxf(
+			0.0,
+			float(entry.get("maintenance_downtime_seconds", 0.0))
+		)
+		machine.failed_downtime_seconds = maxf(
+			0.0,
+			float(entry.get("failed_downtime_seconds", 0.0))
 		)
 		machine.restore_installed_upgrades(
 			entry.get("installed_upgrades", []) as Array
