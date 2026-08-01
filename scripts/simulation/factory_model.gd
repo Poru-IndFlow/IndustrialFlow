@@ -402,6 +402,32 @@ func install_machine_upgrade(
 	return true
 
 
+func can_start_machine_maintenance(machine: MachineModel) -> bool:
+	return (
+		machine != null
+		and machine.can_start_maintenance()
+		and cash_balance >= machine.maintenance_cost
+	)
+
+
+func start_machine_maintenance(machine: MachineModel) -> bool:
+	if not can_start_machine_maintenance(machine):
+		return false
+
+	if not machine.start_maintenance():
+		return false
+
+	cash_balance -= machine.maintenance_cost
+	total_expenses += machine.maintenance_cost
+	_adjust_machine_lifetime(
+		machine.instance_id,
+		0.0,
+		machine.maintenance_cost
+	)
+	_emit_economy_changed()
+	return true
+
+
 func _account_for_machine(
 	machine: MachineModel,
 	delta_seconds: float

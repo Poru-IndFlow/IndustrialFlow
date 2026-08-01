@@ -25,6 +25,8 @@ var condition_value_label: Label
 var condition_efficiency_value_label: Label
 var wear_power_value_label: Label
 var operating_hours_value_label: Label
+var maintenance_plan_value_label: Label
+var maintenance_progress_bar: ProgressBar
 var maintenance_button: Button
 var upgrade_section: VBoxContainer
 var upgrade_list: VBoxContainer
@@ -204,6 +206,22 @@ func _ready() -> void:
 		operating_hours_row
 	)
 	maintenance_section.add_child(operating_hours_row)
+
+	var maintenance_plan_row := UIWidgets.create_labeled_value(
+		"Maintenance plan",
+		"—"
+	)
+	maintenance_plan_value_label = UIWidgets.get_value_label(
+		maintenance_plan_row
+	)
+	maintenance_section.add_child(maintenance_plan_row)
+
+	maintenance_progress_bar = ProgressBar.new()
+	maintenance_progress_bar.min_value = 0.0
+	maintenance_progress_bar.max_value = 100.0
+	maintenance_progress_bar.value = 0.0
+	maintenance_progress_bar.show_percentage = true
+	maintenance_section.add_child(maintenance_progress_bar)
 
 	maintenance_button = Button.new()
 	maintenance_button.text = "Perform Maintenance"
@@ -454,6 +472,9 @@ func bind_factory(new_factory: FactoryModel) -> void:
 	factory.event_bus.machine_condition_changed.connect(
 		_on_machine_condition_changed
 	)
+	factory.event_bus.machine_maintenance_changed.connect(
+		_on_machine_maintenance_changed
+	)
 	factory.event_bus.machine_upgrades_changed.connect(
 		_on_machine_upgrades_changed
 	)
@@ -521,6 +542,10 @@ func _disconnect_factory_signals() -> void:
 	var condition_callback := Callable(
 		self,
 		"_on_machine_condition_changed"
+	)
+	var maintenance_callback := Callable(
+		self,
+		"_on_machine_maintenance_changed"
 	)
 	var upgrades_callback := Callable(
 		self,
@@ -590,6 +615,13 @@ func _disconnect_factory_signals() -> void:
 	):
 		factory.event_bus.machine_condition_changed.disconnect(
 			condition_callback
+		)
+
+	if factory.event_bus.machine_maintenance_changed.is_connected(
+		maintenance_callback
+	):
+		factory.event_bus.machine_maintenance_changed.disconnect(
+			maintenance_callback
 		)
 
 	if factory.event_bus.machine_upgrades_changed.is_connected(
@@ -667,6 +699,18 @@ func _on_machine_condition_changed(machine: MachineModel) -> void:
 		_update_condition_labels()
 		_update_performance_labels()
 		_update_power_labels()
+
+
+func _on_machine_maintenance_changed(machine: MachineModel) -> void:
+	if machine == selected_machine:
+		_update_condition_labels()
+		_update_performance_labels()
+		_update_power_labels()
+		UIWidgets.update_status_badge(
+			state_badge,
+			_state_text(machine.state),
+			_state_color(machine.state)
+		)
 
 
 func _on_machine_upgrades_changed(machine: MachineModel) -> void:
@@ -956,6 +1000,8 @@ func _update_condition_labels() -> void:
 		or condition_efficiency_value_label == null
 		or wear_power_value_label == null
 		or operating_hours_value_label == null
+		or maintenance_plan_value_label == null
+		or maintenance_progress_bar == null
 		or maintenance_button == null
 	):
 		return
@@ -965,6 +1011,10 @@ func _update_condition_labels() -> void:
 		condition_efficiency_value_label.text = "100%"
 		wear_power_value_label.text = "1.00×"
 		operating_hours_value_label.text = "0.00 h"
+		maintenance_plan_value_label.text = "—"
+		maintenance_progress_bar.value = 0.0
+		maintenance_progress_bar.visible = false
+		maintenance_button.text = "Perform Maintenance"
 		maintenance_button.disabled = true
 		UIWidgets.update_status_badge(
 			condition_badge,
@@ -985,9 +1035,29 @@ func _update_condition_labels() -> void:
 	operating_hours_value_label.text = "%.3f h" % (
 		selected_machine.operating_hours
 	)
+	maintenance_plan_value_label.text = "$%.2f · %.0f s" % [
+		selected_machine.maintenance_cost,
+		selected_machine.maintenance_duration_seconds
+	]
+	maintenance_progress_bar.visible = (
+		selected_machine.is_under_maintenance()
+	)
+	maintenance_progress_bar.value = (
+		selected_machine.get_maintenance_progress() * 100.0
+	)
+	maintenance_button.text = (
+		"Maintenance — %.1f s remaining" % (
+			selected_machine.maintenance_remaining_seconds
+		)
+		if selected_machine.is_under_maintenance()
+		else "Perform Maintenance — $%.2f" % (
+			selected_machine.maintenance_cost
+		)
+	)
 	maintenance_button.disabled = (
-		not selected_machine.supports_maintenance()
-		or selected_machine.condition >= 0.999
+		selected_machine.is_under_maintenance()
+		or factory == null
+		or not factory.can_start_machine_maintenance(selected_machine)
 	)
 	UIWidgets.update_status_badge(
 		condition_badge,
@@ -1246,10 +1316,10 @@ func _on_controller_ki_changed(value: float) -> void:
 
 
 func _on_maintenance_pressed() -> void:
-	if selected_machine == null:
+	if selected_machine == null or factory == null:
 		return
 
-	selected_machine.perform_maintenance()
+	factory.start_machine_maintenance(selected_machine)
 
 
 func _populate_resource_section(
@@ -1326,11 +1396,18 @@ func _state_color(state: MachineModel.State) -> Color:
 			return ThemeManager.COLOR_WARNING
 		MachineModel.State.DISABLED:
 			return ThemeManager.COLOR_DANGER
+		MachineModel.State.MAINTENANCE:
+			return ThemeManager.COLOR_ACCENT
 		_:
 			return ThemeManager.COLOR_ACCENT
 
 
 func _condition_text(machine: MachineModel) -> String:
+	if machine.is_under_maintenance():
+		return "Maintenance — %.1f s remaining" % (
+			machine.maintenance_remaining_seconds
+		)
+
 	if machine.is_maintenance_critical():
 		return "Critical — maintenance required"
 
@@ -1341,6 +1418,9 @@ func _condition_text(machine: MachineModel) -> String:
 
 
 func _condition_color(machine: MachineModel) -> Color:
+	if machine.is_under_maintenance():
+		return ThemeManager.COLOR_ACCENT
+
 	if machine.is_maintenance_critical():
 		return ThemeManager.COLOR_DANGER
 

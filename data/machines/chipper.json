@@ -18,6 +18,8 @@
   "maximum_wear_power_multiplier": 1.5,
   "maintenance_warning_condition": 0.75,
   "maintenance_critical_condition": 0.4,
+  "maintenance_cost": 350.0,
+  "maintenance_duration_seconds": 30.0,
   "performance_curve": [
 	{
 	  "speed": 0.0,

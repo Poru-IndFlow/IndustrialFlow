@@ -118,6 +118,8 @@ static func _serialize_machines(factory: FactoryModel) -> Array[Dictionary]:
 			"condition": machine.condition,
 			"operating_hours": machine.operating_hours,
 			"installed_upgrades": machine.installed_upgrades.duplicate(),
+			"maintenance_remaining_seconds": machine.maintenance_remaining_seconds,
+			"maintenance_total_seconds": machine.maintenance_total_seconds,
 			"state": int(machine.state),
 			"cycle_progress": machine.cycle_progress,
 			"inventory": machine.inventory.amounts.duplicate(true)
@@ -266,6 +268,10 @@ static func _deserialize_factory(
 		)
 		machine.state = int(
 			entry.get("state", MachineModel.State.IDLE)
+		)
+		machine.restore_maintenance(
+			float(entry.get("maintenance_remaining_seconds", 0.0)),
+			float(entry.get("maintenance_total_seconds", 0.0))
 		)
 		machine.cycle_progress = float(
 			entry.get("cycle_progress", 0.0)

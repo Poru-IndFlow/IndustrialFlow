@@ -6,7 +6,8 @@ enum State {
 	RUNNING,
 	BLOCKED_INPUT,
 	BLOCKED_OUTPUT,
-	DISABLED
+	DISABLED,
+	MAINTENANCE
 }
 
 enum ControlMode {
@@ -40,6 +41,10 @@ var minimum_condition_efficiency := 0.65
 var maximum_wear_power_multiplier := 1.5
 var maintenance_warning_condition := 0.75
 var maintenance_critical_condition := 0.4
+var maintenance_cost := 0.0
+var maintenance_duration_seconds := 0.0
+var maintenance_remaining_seconds := 0.0
+var maintenance_total_seconds := 0.0
 var control_mode := ControlMode.MANUAL
 var control_resource := ""
 var inventory_setpoint := 0.0
@@ -149,6 +154,19 @@ static func create(
 		0.0,
 		machine.maintenance_warning_condition
 	)
+	machine.maintenance_cost = maxf(
+		0.0,
+		float(machine_definition.get("maintenance_cost", 0.0))
+	)
+	machine.maintenance_duration_seconds = maxf(
+		0.1,
+		float(
+			machine_definition.get(
+				"maintenance_duration_seconds",
+				30.0
+			)
+		)
+	)
 	machine.control_resource = str(
 		machine_definition.get("control_resource", "")
 	)
@@ -236,6 +254,13 @@ static func _load_curve(
 
 
 func tick(delta_seconds: float) -> void:
+	if is_under_maintenance():
+		actual_operating_rate = 0.0
+		set_state(State.MAINTENANCE)
+		_advance_maintenance(delta_seconds)
+		_update_power_demand()
+		return
+
 	_update_actual_operating_rate(delta_seconds)
 
 	if not enabled:
@@ -443,14 +468,83 @@ func is_maintenance_critical() -> bool:
 	)
 
 
-func perform_maintenance() -> void:
-	if not supports_maintenance() or condition >= 1.0:
+func is_under_maintenance() -> bool:
+	return maintenance_remaining_seconds > 0.0
+
+
+func can_start_maintenance() -> bool:
+	return (
+		supports_maintenance()
+		and not is_under_maintenance()
+		and condition < 0.999
+	)
+
+
+func start_maintenance() -> bool:
+	if not can_start_maintenance():
+		return false
+
+	maintenance_total_seconds = maintenance_duration_seconds
+	maintenance_remaining_seconds = maintenance_duration_seconds
+	actual_operating_rate = 0.0
+	set_state(State.MAINTENANCE)
+	_update_power_demand()
+	_notify_maintenance_changed()
+	return true
+
+
+func restore_maintenance(
+	remaining_seconds: float,
+	total_seconds: float
+) -> void:
+	maintenance_total_seconds = maxf(total_seconds, 0.0)
+	maintenance_remaining_seconds = clampf(
+		remaining_seconds,
+		0.0,
+		maintenance_total_seconds
+	)
+
+	if is_under_maintenance():
+		actual_operating_rate = 0.0
+		state = State.MAINTENANCE
+
+
+func get_maintenance_progress() -> float:
+	if maintenance_total_seconds <= 0.0:
+		return 0.0
+
+	return clampf(
+		1.0
+		- maintenance_remaining_seconds
+		/ maintenance_total_seconds,
+		0.0,
+		1.0
+	)
+
+
+func _advance_maintenance(delta_seconds: float) -> void:
+	if delta_seconds <= 0.0 or not is_under_maintenance():
+		return
+
+	maintenance_remaining_seconds = maxf(
+		0.0,
+		maintenance_remaining_seconds - delta_seconds
+	)
+
+	if is_under_maintenance():
+		_notify_maintenance_changed()
 		return
 
 	condition = 1.0
 	_last_condition_notification = condition
+	set_state(State.DISABLED if not enabled else State.IDLE)
 	notify_condition_changed()
-	_update_power_demand()
+	_notify_maintenance_changed()
+
+
+func _notify_maintenance_changed() -> void:
+	if event_bus != null:
+		event_bus.machine_maintenance_changed.emit(self)
 
 
 func _advance_wear(delta_seconds: float) -> void:
@@ -490,6 +584,9 @@ func notify_condition_changed() -> void:
 
 
 func get_power_mode() -> String:
+	if is_under_maintenance():
+		return "Maintenance"
+
 	if not enabled or actual_operating_rate <= 0.0:
 		return "Off"
 
@@ -500,7 +597,11 @@ func _update_power_demand() -> void:
 	var active_demand := get_active_power_demand()
 	var new_demand := 0.0
 
-	if enabled and actual_operating_rate > 0.0:
+	if (
+		enabled
+		and not is_under_maintenance()
+		and actual_operating_rate > 0.0
+	):
 		new_demand = (
 			active_demand
 			if state == State.RUNNING
