@@ -162,7 +162,7 @@ func _add_research_card(definition: Dictionary) -> void:
 		_format_currency(cost),
 		_format_currency(installation_cost),
 		target_id.replace("_", " ").capitalize(),
-		_effect_text(definition)
+		ResearchRegistry.get_effect_summary(definition)
 	]
 	details.modulate = ThemeManager.COLOR_TEXT_MUTED
 	content.add_child(details)
@@ -180,20 +180,6 @@ func _add_research_card(definition: Dictionary) -> void:
 	)
 	button.pressed.connect(_on_research_pressed.bind(research_id))
 	content.add_child(button)
-
-
-func _effect_text(definition: Dictionary) -> String:
-	var effects: Dictionary = definition.get("effects", {})
-	var power_multiplier := float(
-		effects.get("power_multiplier", 1.0)
-	)
-
-	if power_multiplier < 1.0:
-		return "%.0f%% lower power demand" % (
-			(1.0 - power_multiplier) * 100.0
-		)
-
-	return "Machine performance upgrade"
 
 
 func _on_research_pressed(research_id: String) -> void:

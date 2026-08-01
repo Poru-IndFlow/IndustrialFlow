@@ -848,21 +848,27 @@ func _update_upgrade_section() -> void:
 		)
 		var status := Label.new()
 		status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		var effect_summary := ResearchRegistry.get_effect_summary(
+			definition
+		)
 
 		if installed:
-			status.text = "%s — Installed" % str(
-				definition.get("display_name", research_id)
-			)
+			status.text = "%s — Installed\n%s" % [
+				str(definition.get("display_name", research_id)),
+				effect_summary
+			]
 			status.modulate = ThemeManager.COLOR_SUCCESS
 		elif not researched:
-			status.text = "%s — Research required" % str(
-				definition.get("display_name", research_id)
-			)
+			status.text = "%s — Research required\n%s" % [
+				str(definition.get("display_name", research_id)),
+				effect_summary
+			]
 			status.modulate = ThemeManager.COLOR_TEXT_MUTED
 		else:
-			status.text = "%s — Available" % str(
-				definition.get("display_name", research_id)
-			)
+			status.text = "%s — Available\n%s" % [
+				str(definition.get("display_name", research_id)),
+				effect_summary
+			]
 			status.modulate = ThemeManager.COLOR_ACCENT
 
 		upgrade_list.add_child(status)
@@ -885,6 +891,7 @@ func _update_upgrade_section() -> void:
 			_on_install_upgrade_pressed.bind(research_id)
 		)
 		upgrade_list.add_child(button)
+		upgrade_list.add_child(HSeparator.new())
 
 
 func _on_install_upgrade_pressed(research_id: String) -> void:

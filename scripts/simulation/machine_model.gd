@@ -467,7 +467,10 @@ func _advance_wear(delta_seconds: float) -> void:
 	)
 	operating_hours += elapsed_hours
 	condition = clampf(
-		condition - wear_per_operating_hour * elapsed_hours,
+		condition
+		- wear_per_operating_hour
+		* _get_upgrade_effect_multiplier("wear_multiplier")
+		* elapsed_hours,
 		0.0,
 		1.0
 	)

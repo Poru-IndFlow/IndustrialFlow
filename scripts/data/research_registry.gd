@@ -68,3 +68,56 @@ static func get_for_machine(
 			result.append(definition)
 
 	return result
+
+
+static func get_effect_summary(definition: Dictionary) -> String:
+	var effects: Dictionary = definition.get("effects", {})
+	var parts: PackedStringArray = []
+
+	if effects.has("output_multiplier"):
+		parts.append(
+			_multiplier_summary(
+				float(effects.get("output_multiplier", 1.0)),
+				"more output",
+				"less output"
+			)
+		)
+
+	if effects.has("power_multiplier"):
+		parts.append(
+			_multiplier_summary(
+				float(effects.get("power_multiplier", 1.0)),
+				"higher power demand",
+				"lower power demand"
+			)
+		)
+
+	if effects.has("wear_multiplier"):
+		parts.append(
+			_multiplier_summary(
+				float(effects.get("wear_multiplier", 1.0)),
+				"faster wear",
+				"slower wear"
+			)
+		)
+
+	if parts.is_empty():
+		return "Machine performance upgrade"
+
+	return " · ".join(parts)
+
+
+static func _multiplier_summary(
+	multiplier: float,
+	increase_text: String,
+	decrease_text: String
+) -> String:
+	var percent := absf(multiplier - 1.0) * 100.0
+
+	if multiplier > 1.0:
+		return "%.0f%% %s" % [percent, increase_text]
+
+	if multiplier < 1.0:
+		return "%.0f%% %s" % [percent, decrease_text]
+
+	return "No change"
