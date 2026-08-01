@@ -1,4 +1,4 @@
-[gd_scene load_steps=13 format=3]
+[gd_scene load_steps=14 format=3]
 
 [ext_resource type="Script" path="res://scripts/ui/factory_graph.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/app/app_controller.gd" id="2"]
@@ -12,6 +12,7 @@
 [ext_resource type="PackedScene" path="res://scenes/ui/controller_trends.tscn" id="10"]
 [ext_resource type="PackedScene" path="res://scenes/ui/economy_trends.tscn" id="11"]
 [ext_resource type="PackedScene" path="res://scenes/ui/research_workspace.tscn" id="12"]
+[ext_resource type="PackedScene" path="res://scenes/ui/scada_workspace.tscn" id="13"]
 
 [node name="Main" type="Control"]
 layout_mode = 3
@@ -58,6 +59,9 @@ size_flags_vertical = 3
 script = ExtResource("1")
 
 [node name="Plant Overview" parent="RootVBox/Workspace/EditorSplit/WorkspaceTabs" instance=ExtResource("9")]
+layout_mode = 2
+
+[node name="SCADA" parent="RootVBox/Workspace/EditorSplit/WorkspaceTabs" instance=ExtResource("13")]
 layout_mode = 2
 
 [node name="Controller Trends" parent="RootVBox/Workspace/EditorSplit/WorkspaceTabs" instance=ExtResource("10")]
