@@ -54,6 +54,7 @@ var cycle_progress := 0.0
 var graph_position := Vector2.ZERO
 var production_rates_per_second: Dictionary = {}
 var consumption_rates_per_second: Dictionary = {}
+var installed_upgrades: Array[String] = []
 var _produced_in_window: Dictionary = {}
 var _consumed_in_window: Dictionary = {}
 var _economic_production: Dictionary = {}
@@ -256,6 +257,7 @@ func get_effective_production_rate() -> float:
 	return (
 		_get_base_production_rate()
 		* get_condition_efficiency()
+		* _get_upgrade_effect_multiplier("output_multiplier")
 	)
 
 
@@ -308,7 +310,68 @@ func get_active_power_demand() -> float:
 	return (
 		_get_base_power_demand()
 		* get_condition_power_multiplier()
+		* _get_upgrade_effect_multiplier("power_multiplier")
 	)
+
+
+func has_upgrade(research_id: String) -> bool:
+	return installed_upgrades.has(research_id)
+
+
+func install_upgrade(research_id: String) -> bool:
+	if research_id.is_empty() or has_upgrade(research_id):
+		return false
+
+	var definition := ResearchRegistry.get_definition(research_id)
+
+	if (
+		definition.is_empty()
+		or str(definition.get("target_machine_id", ""))
+		!= definition_id
+	):
+		return false
+
+	installed_upgrades.append(research_id)
+	_update_power_demand()
+
+	if event_bus != null:
+		event_bus.machine_upgrades_changed.emit(self)
+		event_bus.machine_performance_changed.emit(self)
+
+	return true
+
+
+func restore_installed_upgrades(values: Array) -> void:
+	installed_upgrades.clear()
+
+	for value: Variant in values:
+		var research_id := str(value)
+		var definition := ResearchRegistry.get_definition(research_id)
+
+		if (
+			research_id.is_empty()
+			or definition.is_empty()
+			or str(definition.get("target_machine_id", ""))
+			!= definition_id
+			or installed_upgrades.has(research_id)
+		):
+			continue
+
+		installed_upgrades.append(research_id)
+
+
+func _get_upgrade_effect_multiplier(effect_id: String) -> float:
+	var multiplier := 1.0
+
+	for research_id: String in installed_upgrades:
+		var definition := ResearchRegistry.get_definition(research_id)
+		var effects: Dictionary = definition.get("effects", {})
+		multiplier *= maxf(
+			0.0,
+			float(effects.get(effect_id, 1.0))
+		)
+
+	return multiplier
 
 
 func _get_base_power_demand() -> float:
@@ -404,7 +467,10 @@ func _advance_wear(delta_seconds: float) -> void:
 	)
 	operating_hours += elapsed_hours
 	condition = clampf(
-		condition - wear_per_operating_hour * elapsed_hours,
+		condition
+		- wear_per_operating_hour
+		* _get_upgrade_effect_multiplier("wear_multiplier")
+		* elapsed_hours,
 		0.0,
 		1.0
 	)

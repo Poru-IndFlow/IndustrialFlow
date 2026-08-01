@@ -27,6 +27,7 @@ static func save_factory(
 			0.0
 		),
 		"economy": factory.serialize_economy(),
+		"research": factory.serialize_research(),
 		"machines": _serialize_machines(factory),
 		"connections": _serialize_connections(factory)
 	}
@@ -116,6 +117,7 @@ static func _serialize_machines(factory: FactoryModel) -> Array[Dictionary]:
 			"controller_integral": machine.controller_integral,
 			"condition": machine.condition,
 			"operating_hours": machine.operating_hours,
+			"installed_upgrades": machine.installed_upgrades.duplicate(),
 			"state": int(machine.state),
 			"cycle_progress": machine.cycle_progress,
 			"inventory": machine.inventory.amounts.duplicate(true)
@@ -154,6 +156,8 @@ static func _deserialize_factory(
 	var factory := FactoryModel.new(event_bus)
 	var economy_data: Dictionary = data.get("economy", {})
 	factory.restore_economy(economy_data)
+	var research_data: Dictionary = data.get("research", {})
+	factory.restore_research(research_data)
 	var machine_entries: Array = data.get("machines", [])
 
 	for value: Variant in machine_entries:
@@ -251,6 +255,9 @@ static func _deserialize_factory(
 		machine.operating_hours = maxf(
 			0.0,
 			float(entry.get("operating_hours", 0.0))
+		)
+		machine.restore_installed_upgrades(
+			entry.get("installed_upgrades", []) as Array
 		)
 		machine.actual_operating_rate = clampf(
 			float(entry.get("actual_operating_rate", 0.0)),

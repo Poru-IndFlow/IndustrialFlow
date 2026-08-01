@@ -18,6 +18,7 @@ var net_cash_flow_per_second := 0.0
 var machine_economy: Dictionary = {}
 var resource_economy: Dictionary = {}
 var economy_samples: Array[Dictionary] = []
+var researched_ideas: Dictionary = {}
 var _next_instance_numbers: Dictionary = {}
 var _revenue_in_window := 0.0
 var _expenses_in_window := 0.0
@@ -295,6 +296,110 @@ func clear_economy_samples() -> void:
 	economy_samples.clear()
 	_economy_sample_time = 0.0
 	_emit_economy_changed()
+
+
+func serialize_research() -> Dictionary:
+	return researched_ideas.duplicate(true)
+
+
+func restore_research(data: Dictionary) -> void:
+	researched_ideas.clear()
+
+	for key: Variant in data.keys():
+		var research_id := str(key)
+
+		if (
+			bool(data.get(key, false))
+			and not ResearchRegistry.get_definition(research_id).is_empty()
+		):
+			researched_ideas[research_id] = true
+
+
+func is_researched(research_id: String) -> bool:
+	return bool(researched_ideas.get(research_id, false))
+
+
+func can_research(research_id: String) -> bool:
+	if is_researched(research_id):
+		return false
+
+	var definition := ResearchRegistry.get_definition(research_id)
+	var cost := maxf(
+		0.0,
+		float(definition.get("research_cost", 0.0))
+	)
+	return not definition.is_empty() and cash_balance >= cost
+
+
+func research_idea(research_id: String) -> bool:
+	if not can_research(research_id):
+		return false
+
+	var definition := ResearchRegistry.get_definition(research_id)
+	var cost := maxf(
+		0.0,
+		float(definition.get("research_cost", 0.0))
+	)
+	cash_balance -= cost
+	total_expenses += cost
+	researched_ideas[research_id] = true
+	_emit_economy_changed()
+
+	if event_bus != null:
+		event_bus.research_changed.emit(self)
+
+	return true
+
+
+func can_install_upgrade(
+	machine: MachineModel,
+	research_id: String
+) -> bool:
+	if (
+		machine == null
+		or not is_researched(research_id)
+		or machine.has_upgrade(research_id)
+	):
+		return false
+
+	var definition := ResearchRegistry.get_definition(research_id)
+	var installation_cost := maxf(
+		0.0,
+		float(definition.get("installation_cost", 0.0))
+	)
+	return (
+		not definition.is_empty()
+		and str(definition.get("target_machine_id", ""))
+		== machine.definition_id
+		and cash_balance >= installation_cost
+	)
+
+
+func install_machine_upgrade(
+	machine: MachineModel,
+	research_id: String
+) -> bool:
+	if not can_install_upgrade(machine, research_id):
+		return false
+
+	var definition := ResearchRegistry.get_definition(research_id)
+	var installation_cost := maxf(
+		0.0,
+		float(definition.get("installation_cost", 0.0))
+	)
+
+	if not machine.install_upgrade(research_id):
+		return false
+
+	cash_balance -= installation_cost
+	total_expenses += installation_cost
+	_adjust_machine_lifetime(
+		machine.instance_id,
+		0.0,
+		installation_cost
+	)
+	_emit_economy_changed()
+	return true
 
 
 func _account_for_machine(
