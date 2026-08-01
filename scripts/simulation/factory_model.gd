@@ -234,6 +234,7 @@ func tick(delta_seconds: float) -> void:
 			continue
 
 		machine.tick(delta_seconds)
+		_try_start_automatic_maintenance(machine)
 		_account_for_machine(machine, delta_seconds)
 		machine.advance_production_telemetry(delta_seconds)
 
@@ -400,6 +401,55 @@ func install_machine_upgrade(
 	)
 	_emit_economy_changed()
 	return true
+
+
+func can_start_machine_maintenance(machine: MachineModel) -> bool:
+	return (
+		machine != null
+		and machine.can_start_maintenance()
+		and cash_balance >= machine.get_current_maintenance_cost()
+	)
+
+
+func start_machine_maintenance(machine: MachineModel) -> bool:
+	if not can_start_machine_maintenance(machine):
+		return false
+
+	var maintenance_cost := machine.get_current_maintenance_cost()
+
+	if not machine.start_maintenance():
+		return false
+
+	cash_balance -= maintenance_cost
+	total_expenses += maintenance_cost
+	_adjust_machine_lifetime(
+		machine.instance_id,
+		0.0,
+		maintenance_cost
+	)
+	_emit_economy_changed()
+	return true
+
+
+func _try_start_automatic_maintenance(machine: MachineModel) -> void:
+	if (
+		machine == null
+		or not machine.maintenance_policy_enabled
+		or machine.is_under_maintenance()
+		or machine.is_failed()
+		or machine.condition > machine.maintenance_policy_condition
+	):
+		return
+
+	var maintenance_cost := machine.get_current_maintenance_cost()
+
+	if (
+		cash_balance - maintenance_cost
+		< machine.maintenance_policy_cash_reserve
+	):
+		return
+
+	start_machine_maintenance(machine)
 
 
 func _account_for_machine(

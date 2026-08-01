@@ -6,7 +6,9 @@ enum State {
 	RUNNING,
 	BLOCKED_INPUT,
 	BLOCKED_OUTPUT,
-	DISABLED
+	DISABLED,
+	MAINTENANCE,
+	FAILED
 }
 
 enum ControlMode {
@@ -31,6 +33,9 @@ var ramp_up_seconds := 1.0
 var ramp_down_seconds := 1.0
 var performance_curve: Array[Dictionary] = []
 var power_curve: Array[Dictionary] = []
+var breakdown_chance_curve: Array[Dictionary] = []
+var breakdown_warning_chance_per_hour := 0.05
+var breakdown_critical_chance_per_hour := 0.2
 var idle_power_ratio := 0.15
 var power_demand := 0.0
 var condition := 1.0
@@ -40,6 +45,22 @@ var minimum_condition_efficiency := 0.65
 var maximum_wear_power_multiplier := 1.5
 var maintenance_warning_condition := 0.75
 var maintenance_critical_condition := 0.4
+var maintenance_cost := 0.0
+var maintenance_duration_seconds := 0.0
+var maintenance_remaining_seconds := 0.0
+var maintenance_total_seconds := 0.0
+var emergency_repair_cost := 0.0
+var emergency_repair_duration_seconds := 0.0
+var maintenance_is_emergency := false
+var maintenance_policy_enabled := false
+var maintenance_policy_condition := 0.75
+var maintenance_policy_cash_reserve := 0.0
+var preventive_maintenance_count := 0
+var failure_count := 0
+var emergency_repair_count := 0
+var maintenance_spend := 0.0
+var maintenance_downtime_seconds := 0.0
+var failed_downtime_seconds := 0.0
 var control_mode := ControlMode.MANUAL
 var control_resource := ""
 var inventory_setpoint := 0.0
@@ -96,6 +117,29 @@ static func create(
 		"power_curve",
 		"power"
 	)
+	machine.breakdown_chance_curve = _load_breakdown_chance_curve(
+		machine_definition
+	)
+	machine.breakdown_warning_chance_per_hour = clampf(
+		float(
+			machine_definition.get(
+				"breakdown_warning_chance_per_hour",
+				0.05
+			)
+		),
+		0.0,
+		1.0
+	)
+	machine.breakdown_critical_chance_per_hour = clampf(
+		float(
+			machine_definition.get(
+				"breakdown_critical_chance_per_hour",
+				0.2
+			)
+		),
+		machine.breakdown_warning_chance_per_hour,
+		1.0
+	)
 	machine.idle_power_ratio = clampf(
 		float(machine_definition.get("idle_power_ratio", 0.15)),
 		0.0,
@@ -148,6 +192,38 @@ static func create(
 		),
 		0.0,
 		machine.maintenance_warning_condition
+	)
+	machine.maintenance_policy_condition = machine.maintenance_warning_condition
+	machine.maintenance_cost = maxf(
+		0.0,
+		float(machine_definition.get("maintenance_cost", 0.0))
+	)
+	machine.maintenance_duration_seconds = maxf(
+		0.1,
+		float(
+			machine_definition.get(
+				"maintenance_duration_seconds",
+				30.0
+			)
+		)
+	)
+	machine.emergency_repair_cost = maxf(
+		machine.maintenance_cost,
+		float(
+			machine_definition.get(
+				"emergency_repair_cost",
+				machine.maintenance_cost * 2.0
+			)
+		)
+	)
+	machine.emergency_repair_duration_seconds = maxf(
+		machine.maintenance_duration_seconds,
+		float(
+			machine_definition.get(
+				"emergency_repair_duration_seconds",
+				machine.maintenance_duration_seconds * 2.0
+			)
+		)
 	)
 	machine.control_resource = str(
 		machine_definition.get("control_resource", "")
@@ -235,7 +311,55 @@ static func _load_curve(
 	return result
 
 
+static func _load_breakdown_chance_curve(
+	machine_definition: Dictionary
+) -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	var entries: Array = machine_definition.get(
+		"breakdown_chance_curve",
+		[]
+	)
+
+	for value: Variant in entries:
+		if not value is Dictionary:
+			continue
+
+		var entry := value as Dictionary
+		result.append({
+			"condition": clampf(
+				float(entry.get("condition", 1.0)),
+				0.0,
+				1.0
+			),
+			"chance": clampf(
+				float(entry.get("chance", 0.0)),
+				0.0,
+				1.0
+			)
+		})
+
+	result.sort_custom(
+		func(left: Dictionary, right: Dictionary) -> bool:
+			return float(left["condition"]) < float(right["condition"])
+	)
+	return result
+
+
 func tick(delta_seconds: float) -> void:
+	if is_under_maintenance():
+		actual_operating_rate = 0.0
+		set_state(State.MAINTENANCE)
+		_advance_maintenance(delta_seconds)
+		_update_power_demand()
+		return
+
+	if is_failed():
+		actual_operating_rate = 0.0
+		set_state(State.FAILED)
+		_advance_failed_downtime(delta_seconds)
+		_update_power_demand()
+		return
+
 	_update_actual_operating_rate(delta_seconds)
 
 	if not enabled:
@@ -249,6 +373,7 @@ func tick(delta_seconds: float) -> void:
 		return
 
 	behaviour.tick(self, delta_seconds)
+	_roll_for_breakdown(delta_seconds)
 	_advance_wear(delta_seconds)
 	_update_power_demand()
 
@@ -443,14 +568,242 @@ func is_maintenance_critical() -> bool:
 	)
 
 
-func perform_maintenance() -> void:
-	if not supports_maintenance() or condition >= 1.0:
+func is_under_maintenance() -> bool:
+	return maintenance_remaining_seconds > 0.0
+
+
+func is_failed() -> bool:
+	return condition <= 0.0 and not is_under_maintenance()
+
+
+func get_current_maintenance_cost() -> float:
+	return (
+		emergency_repair_cost
+		if maintenance_is_emergency or is_failed()
+		else maintenance_cost
+	)
+
+
+func get_current_maintenance_duration() -> float:
+	return (
+		emergency_repair_duration_seconds
+		if maintenance_is_emergency or is_failed()
+		else maintenance_duration_seconds
+	)
+
+
+func can_start_maintenance() -> bool:
+	return (
+		supports_maintenance()
+		and not is_under_maintenance()
+		and condition < 0.999
+	)
+
+
+func set_maintenance_policy_enabled(value: bool) -> void:
+	if maintenance_policy_enabled == value:
+		return
+
+	maintenance_policy_enabled = value
+	notify_settings_changed()
+
+
+func set_maintenance_policy_condition(value: float) -> void:
+	var new_value := clampf(value, 0.01, 0.99)
+
+	if is_equal_approx(maintenance_policy_condition, new_value):
+		return
+
+	maintenance_policy_condition = new_value
+	notify_settings_changed()
+
+
+func set_maintenance_policy_cash_reserve(value: float) -> void:
+	var new_value := maxf(value, 0.0)
+
+	if is_equal_approx(maintenance_policy_cash_reserve, new_value):
+		return
+
+	maintenance_policy_cash_reserve = new_value
+	notify_settings_changed()
+
+
+func start_maintenance() -> bool:
+	if not can_start_maintenance():
+		return false
+
+	maintenance_is_emergency = is_failed()
+	maintenance_total_seconds = get_current_maintenance_duration()
+	maintenance_remaining_seconds = maintenance_total_seconds
+	maintenance_spend += get_current_maintenance_cost()
+
+	if maintenance_is_emergency:
+		emergency_repair_count += 1
+	else:
+		preventive_maintenance_count += 1
+
+	actual_operating_rate = 0.0
+	set_state(State.MAINTENANCE)
+	_update_power_demand()
+	_notify_maintenance_changed()
+	return true
+
+
+func restore_maintenance(
+	remaining_seconds: float,
+	total_seconds: float,
+	is_emergency: bool = false
+) -> void:
+	maintenance_total_seconds = maxf(total_seconds, 0.0)
+	maintenance_remaining_seconds = clampf(
+		remaining_seconds,
+		0.0,
+		maintenance_total_seconds
+	)
+	maintenance_is_emergency = is_emergency and is_under_maintenance()
+
+	if is_under_maintenance():
+		actual_operating_rate = 0.0
+		state = State.MAINTENANCE
+
+
+func get_maintenance_progress() -> float:
+	if maintenance_total_seconds <= 0.0:
+		return 0.0
+
+	return clampf(
+		1.0
+		- maintenance_remaining_seconds
+		/ maintenance_total_seconds,
+		0.0,
+		1.0
+	)
+
+
+func _advance_maintenance(delta_seconds: float) -> void:
+	if delta_seconds <= 0.0 or not is_under_maintenance():
+		return
+
+	var elapsed := minf(delta_seconds, maintenance_remaining_seconds)
+	maintenance_downtime_seconds += elapsed
+	maintenance_remaining_seconds = maxf(
+		0.0,
+		maintenance_remaining_seconds - delta_seconds
+	)
+
+	if is_under_maintenance():
+		_notify_maintenance_changed()
 		return
 
 	condition = 1.0
 	_last_condition_notification = condition
+	maintenance_is_emergency = false
+	set_state(State.DISABLED if not enabled else State.IDLE)
 	notify_condition_changed()
-	_update_power_demand()
+	_notify_maintenance_changed()
+
+
+func _advance_failed_downtime(delta_seconds: float) -> void:
+	if delta_seconds <= 0.0:
+		return
+
+	var previous_whole_seconds := floori(failed_downtime_seconds)
+	failed_downtime_seconds += delta_seconds
+
+	if floori(failed_downtime_seconds) != previous_whole_seconds:
+		_notify_maintenance_changed()
+
+
+func get_total_downtime_seconds() -> float:
+	return maintenance_downtime_seconds + failed_downtime_seconds
+
+
+func get_breakdown_chance_per_hour() -> float:
+	if breakdown_chance_curve.is_empty():
+		return 0.0
+
+	var first := breakdown_chance_curve[0]
+
+	if condition <= float(first["condition"]):
+		return float(first["chance"])
+
+	for index: int in range(1, breakdown_chance_curve.size()):
+		var left := breakdown_chance_curve[index - 1]
+		var right := breakdown_chance_curve[index]
+		var right_condition := float(right["condition"])
+
+		if condition <= right_condition:
+			var left_condition := float(left["condition"])
+			var span := right_condition - left_condition
+			var weight := (
+				(condition - left_condition) / span
+				if span > 0.0
+				else 0.0
+			)
+			return lerpf(
+				float(left["chance"]),
+				float(right["chance"]),
+				weight
+			)
+
+	return float(breakdown_chance_curve[-1]["chance"])
+
+
+func is_breakdown_risk_warning() -> bool:
+	return (
+		not is_failed()
+		and not is_under_maintenance()
+		and get_breakdown_chance_per_hour()
+		>= breakdown_warning_chance_per_hour
+	)
+
+
+func is_breakdown_risk_critical() -> bool:
+	return (
+		not is_failed()
+		and not is_under_maintenance()
+		and get_breakdown_chance_per_hour()
+		>= breakdown_critical_chance_per_hour
+	)
+
+
+func _roll_for_breakdown(delta_seconds: float) -> void:
+	if (
+		delta_seconds <= 0.0
+		or state != State.RUNNING
+		or not supports_maintenance()
+	):
+		return
+
+	var hourly_chance := get_breakdown_chance_per_hour()
+
+	if hourly_chance <= 0.0:
+		return
+
+	var exposure_hours := (
+		delta_seconds * maxf(actual_operating_rate, 0.0) / 3600.0
+	)
+	var tick_chance := 1.0 - pow(1.0 - hourly_chance, exposure_hours)
+
+	if randf() < tick_chance:
+		_fail_machine()
+
+
+func _fail_machine() -> void:
+	if state == State.FAILED:
+		return
+
+	condition = 0.0
+	actual_operating_rate = 0.0
+	failure_count += 1
+	_last_condition_notification = condition
+	set_state(State.FAILED)
+	notify_condition_changed()
+
+
+func _notify_maintenance_changed() -> void:
+	if event_bus != null:
+		event_bus.machine_maintenance_changed.emit(self)
 
 
 func _advance_wear(delta_seconds: float) -> void:
@@ -475,6 +828,9 @@ func _advance_wear(delta_seconds: float) -> void:
 		1.0
 	)
 
+	if condition <= 0.0:
+		_fail_machine()
+
 	if (
 		absf(condition - _last_condition_notification) >= 0.0025
 		or operating_hours - _last_hours_notification >= 0.01
@@ -490,6 +846,9 @@ func notify_condition_changed() -> void:
 
 
 func get_power_mode() -> String:
+	if is_under_maintenance():
+		return "Maintenance"
+
 	if not enabled or actual_operating_rate <= 0.0:
 		return "Off"
 
@@ -500,7 +859,11 @@ func _update_power_demand() -> void:
 	var active_demand := get_active_power_demand()
 	var new_demand := 0.0
 
-	if enabled and actual_operating_rate > 0.0:
+	if (
+		enabled
+		and not is_under_maintenance()
+		and actual_operating_rate > 0.0
+	):
 		new_demand = (
 			active_demand
 			if state == State.RUNNING

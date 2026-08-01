@@ -22,9 +22,20 @@ var power_mode_value_label: Label
 var maintenance_section: VBoxContainer
 var condition_badge: Label
 var condition_value_label: Label
+var breakdown_risk_value_label: Label
 var condition_efficiency_value_label: Label
 var wear_power_value_label: Label
 var operating_hours_value_label: Label
+var maintenance_plan_value_label: Label
+var maintenance_policy_check_box: CheckBox
+var maintenance_policy_condition_spin_box: SpinBox
+var maintenance_policy_cash_reserve_spin_box: SpinBox
+var maintenance_policy_status_value_label: Label
+var preventive_maintenance_value_label: Label
+var emergency_repairs_value_label: Label
+var maintenance_spend_value_label: Label
+var downtime_value_label: Label
+var maintenance_progress_bar: ProgressBar
 var maintenance_button: Button
 var upgrade_section: VBoxContainer
 var upgrade_list: VBoxContainer
@@ -178,6 +189,15 @@ func _ready() -> void:
 	)
 	maintenance_section.add_child(condition_row)
 
+	var breakdown_risk_row := UIWidgets.create_labeled_value(
+		"Breakdown chance",
+		"0% per operating hour"
+	)
+	breakdown_risk_value_label = UIWidgets.get_value_label(
+		breakdown_risk_row
+	)
+	maintenance_section.add_child(breakdown_risk_row)
+
 	var condition_efficiency_row := UIWidgets.create_labeled_value(
 		"Condition efficiency",
 		"100%"
@@ -204,6 +224,110 @@ func _ready() -> void:
 		operating_hours_row
 	)
 	maintenance_section.add_child(operating_hours_row)
+
+	var maintenance_plan_row := UIWidgets.create_labeled_value(
+		"Maintenance plan",
+		"—"
+	)
+	maintenance_plan_value_label = UIWidgets.get_value_label(
+		maintenance_plan_row
+	)
+	maintenance_section.add_child(maintenance_plan_row)
+
+	maintenance_policy_check_box = CheckBox.new()
+	maintenance_policy_check_box.text = "Automatic preventive maintenance"
+	maintenance_policy_check_box.toggled.connect(
+		_on_maintenance_policy_toggled
+	)
+	maintenance_section.add_child(maintenance_policy_check_box)
+
+	var policy_condition_row := HBoxContainer.new()
+	maintenance_section.add_child(policy_condition_row)
+
+	var policy_condition_label := Label.new()
+	policy_condition_label.text = "Service threshold"
+	policy_condition_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	policy_condition_row.add_child(policy_condition_label)
+
+	maintenance_policy_condition_spin_box = SpinBox.new()
+	maintenance_policy_condition_spin_box.custom_minimum_size = Vector2(135, 0)
+	maintenance_policy_condition_spin_box.min_value = 1.0
+	maintenance_policy_condition_spin_box.max_value = 99.0
+	maintenance_policy_condition_spin_box.step = 1.0
+	maintenance_policy_condition_spin_box.suffix = "%"
+	maintenance_policy_condition_spin_box.value_changed.connect(
+		_on_maintenance_policy_condition_changed
+	)
+	policy_condition_row.add_child(maintenance_policy_condition_spin_box)
+
+	var policy_reserve_row := HBoxContainer.new()
+	maintenance_section.add_child(policy_reserve_row)
+
+	var policy_reserve_label := Label.new()
+	policy_reserve_label.text = "Minimum cash reserve"
+	policy_reserve_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	policy_reserve_row.add_child(policy_reserve_label)
+
+	maintenance_policy_cash_reserve_spin_box = SpinBox.new()
+	maintenance_policy_cash_reserve_spin_box.custom_minimum_size = Vector2(135, 0)
+	maintenance_policy_cash_reserve_spin_box.min_value = 0.0
+	maintenance_policy_cash_reserve_spin_box.max_value = 1000000000.0
+	maintenance_policy_cash_reserve_spin_box.step = 100.0
+	maintenance_policy_cash_reserve_spin_box.prefix = "$"
+	maintenance_policy_cash_reserve_spin_box.value_changed.connect(
+		_on_maintenance_policy_cash_reserve_changed
+	)
+	policy_reserve_row.add_child(maintenance_policy_cash_reserve_spin_box)
+
+	var policy_status_row := UIWidgets.create_labeled_value(
+		"Policy status",
+		"Manual"
+	)
+	maintenance_policy_status_value_label = UIWidgets.get_value_label(
+		policy_status_row
+	)
+	maintenance_section.add_child(policy_status_row)
+
+	var preventive_maintenance_row := UIWidgets.create_labeled_value(
+		"Preventive services",
+		"0"
+	)
+	preventive_maintenance_value_label = UIWidgets.get_value_label(
+		preventive_maintenance_row
+	)
+	maintenance_section.add_child(preventive_maintenance_row)
+
+	var emergency_repairs_row := UIWidgets.create_labeled_value(
+		"Failures / emergency repairs",
+		"0 / 0"
+	)
+	emergency_repairs_value_label = UIWidgets.get_value_label(
+		emergency_repairs_row
+	)
+	maintenance_section.add_child(emergency_repairs_row)
+
+	var maintenance_spend_row := UIWidgets.create_labeled_value(
+		"Maintenance spend",
+		"$0.00"
+	)
+	maintenance_spend_value_label = UIWidgets.get_value_label(
+		maintenance_spend_row
+	)
+	maintenance_section.add_child(maintenance_spend_row)
+
+	var downtime_row := UIWidgets.create_labeled_value(
+		"Total downtime",
+		"0 s"
+	)
+	downtime_value_label = UIWidgets.get_value_label(downtime_row)
+	maintenance_section.add_child(downtime_row)
+
+	maintenance_progress_bar = ProgressBar.new()
+	maintenance_progress_bar.min_value = 0.0
+	maintenance_progress_bar.max_value = 100.0
+	maintenance_progress_bar.value = 0.0
+	maintenance_progress_bar.show_percentage = true
+	maintenance_section.add_child(maintenance_progress_bar)
 
 	maintenance_button = Button.new()
 	maintenance_button.text = "Perform Maintenance"
@@ -454,6 +578,9 @@ func bind_factory(new_factory: FactoryModel) -> void:
 	factory.event_bus.machine_condition_changed.connect(
 		_on_machine_condition_changed
 	)
+	factory.event_bus.machine_maintenance_changed.connect(
+		_on_machine_maintenance_changed
+	)
 	factory.event_bus.machine_upgrades_changed.connect(
 		_on_machine_upgrades_changed
 	)
@@ -521,6 +648,10 @@ func _disconnect_factory_signals() -> void:
 	var condition_callback := Callable(
 		self,
 		"_on_machine_condition_changed"
+	)
+	var maintenance_callback := Callable(
+		self,
+		"_on_machine_maintenance_changed"
 	)
 	var upgrades_callback := Callable(
 		self,
@@ -590,6 +721,13 @@ func _disconnect_factory_signals() -> void:
 	):
 		factory.event_bus.machine_condition_changed.disconnect(
 			condition_callback
+		)
+
+	if factory.event_bus.machine_maintenance_changed.is_connected(
+		maintenance_callback
+	):
+		factory.event_bus.machine_maintenance_changed.disconnect(
+			maintenance_callback
 		)
 
 	if factory.event_bus.machine_upgrades_changed.is_connected(
@@ -667,6 +805,18 @@ func _on_machine_condition_changed(machine: MachineModel) -> void:
 		_update_condition_labels()
 		_update_performance_labels()
 		_update_power_labels()
+
+
+func _on_machine_maintenance_changed(machine: MachineModel) -> void:
+	if machine == selected_machine:
+		_update_condition_labels()
+		_update_performance_labels()
+		_update_power_labels()
+		UIWidgets.update_status_badge(
+			state_badge,
+			_state_text(machine.state),
+			_state_color(machine.state)
+		)
 
 
 func _on_machine_upgrades_changed(machine: MachineModel) -> void:
@@ -953,18 +1103,45 @@ func _update_condition_labels() -> void:
 	if (
 		condition_badge == null
 		or condition_value_label == null
+		or breakdown_risk_value_label == null
 		or condition_efficiency_value_label == null
 		or wear_power_value_label == null
 		or operating_hours_value_label == null
+		or maintenance_plan_value_label == null
+		or maintenance_policy_check_box == null
+		or maintenance_policy_condition_spin_box == null
+		or maintenance_policy_cash_reserve_spin_box == null
+		or maintenance_policy_status_value_label == null
+		or preventive_maintenance_value_label == null
+		or emergency_repairs_value_label == null
+		or maintenance_spend_value_label == null
+		or downtime_value_label == null
+		or maintenance_progress_bar == null
 		or maintenance_button == null
 	):
 		return
 
 	if selected_machine == null:
 		condition_value_label.text = "100%"
+		breakdown_risk_value_label.text = "0% per operating hour"
 		condition_efficiency_value_label.text = "100%"
 		wear_power_value_label.text = "1.00×"
 		operating_hours_value_label.text = "0.00 h"
+		maintenance_plan_value_label.text = "—"
+		maintenance_policy_check_box.button_pressed = false
+		maintenance_policy_check_box.disabled = true
+		maintenance_policy_condition_spin_box.value = 75.0
+		maintenance_policy_condition_spin_box.editable = false
+		maintenance_policy_cash_reserve_spin_box.value = 0.0
+		maintenance_policy_cash_reserve_spin_box.editable = false
+		maintenance_policy_status_value_label.text = "Manual"
+		preventive_maintenance_value_label.text = "0"
+		emergency_repairs_value_label.text = "0 / 0"
+		maintenance_spend_value_label.text = "$0.00"
+		downtime_value_label.text = "0 s"
+		maintenance_progress_bar.value = 0.0
+		maintenance_progress_bar.visible = false
+		maintenance_button.text = "Perform Maintenance"
 		maintenance_button.disabled = true
 		UIWidgets.update_status_badge(
 			condition_badge,
@@ -976,6 +1153,9 @@ func _update_condition_labels() -> void:
 	condition_value_label.text = "%.1f%%" % (
 		selected_machine.condition * 100.0
 	)
+	breakdown_risk_value_label.text = _format_breakdown_risk(
+		selected_machine.get_breakdown_chance_per_hour()
+	)
 	condition_efficiency_value_label.text = "%.1f%%" % (
 		selected_machine.get_condition_efficiency() * 100.0
 	)
@@ -985,9 +1165,70 @@ func _update_condition_labels() -> void:
 	operating_hours_value_label.text = "%.3f h" % (
 		selected_machine.operating_hours
 	)
+	var emergency_repair := (
+		selected_machine.maintenance_is_emergency
+		or selected_machine.is_failed()
+	)
+	maintenance_plan_value_label.text = "%s · $%.2f · %.0f s" % [
+		"Emergency" if emergency_repair else "Planned",
+		selected_machine.get_current_maintenance_cost(),
+		selected_machine.get_current_maintenance_duration()
+	]
+	maintenance_policy_check_box.button_pressed = (
+		selected_machine.maintenance_policy_enabled
+	)
+	maintenance_policy_check_box.disabled = false
+	maintenance_policy_condition_spin_box.value = (
+		selected_machine.maintenance_policy_condition * 100.0
+	)
+	maintenance_policy_condition_spin_box.editable = (
+		selected_machine.maintenance_policy_enabled
+	)
+	maintenance_policy_cash_reserve_spin_box.value = (
+		selected_machine.maintenance_policy_cash_reserve
+	)
+	maintenance_policy_cash_reserve_spin_box.editable = (
+		selected_machine.maintenance_policy_enabled
+	)
+	maintenance_policy_status_value_label.text = _maintenance_policy_status(
+		selected_machine
+	)
+	preventive_maintenance_value_label.text = str(
+		selected_machine.preventive_maintenance_count
+	)
+	emergency_repairs_value_label.text = "%d / %d" % [
+		selected_machine.failure_count,
+		selected_machine.emergency_repair_count
+	]
+	maintenance_spend_value_label.text = "$%.2f" % (
+		selected_machine.maintenance_spend
+	)
+	downtime_value_label.text = _format_duration(
+		selected_machine.get_total_downtime_seconds()
+	)
+	maintenance_progress_bar.visible = (
+		selected_machine.is_under_maintenance()
+	)
+	maintenance_progress_bar.value = (
+		selected_machine.get_maintenance_progress() * 100.0
+	)
+	if selected_machine.is_under_maintenance():
+		maintenance_button.text = "%s — %.1f s remaining" % [
+			"Emergency repair" if emergency_repair else "Maintenance",
+			selected_machine.maintenance_remaining_seconds
+		]
+	elif emergency_repair:
+		maintenance_button.text = "Begin Emergency Repair — $%.2f" % (
+			selected_machine.get_current_maintenance_cost()
+		)
+	else:
+		maintenance_button.text = "Perform Maintenance — $%.2f" % (
+			selected_machine.get_current_maintenance_cost()
+		)
 	maintenance_button.disabled = (
-		not selected_machine.supports_maintenance()
-		or selected_machine.condition >= 0.999
+		selected_machine.is_under_maintenance()
+		or factory == null
+		or not factory.can_start_machine_maintenance(selected_machine)
 	)
 	UIWidgets.update_status_badge(
 		condition_badge,
@@ -1246,10 +1487,59 @@ func _on_controller_ki_changed(value: float) -> void:
 
 
 func _on_maintenance_pressed() -> void:
-	if selected_machine == null:
+	if selected_machine == null or factory == null:
 		return
 
-	selected_machine.perform_maintenance()
+	factory.start_machine_maintenance(selected_machine)
+
+
+func _on_maintenance_policy_toggled(enabled: bool) -> void:
+	if updating_controls or selected_machine == null:
+		return
+
+	var previous_value := selected_machine.maintenance_policy_enabled
+
+	if previous_value == enabled:
+		return
+
+	_execute_setting_action(
+		"set automatic maintenance policy",
+		selected_machine.set_maintenance_policy_enabled.bind(enabled),
+		selected_machine.set_maintenance_policy_enabled.bind(previous_value)
+	)
+
+
+func _on_maintenance_policy_condition_changed(percent: float) -> void:
+	if updating_controls or selected_machine == null:
+		return
+
+	var value := percent / 100.0
+	var previous_value := selected_machine.maintenance_policy_condition
+
+	if is_equal_approx(previous_value, value):
+		return
+
+	_execute_setting_action(
+		"set maintenance threshold",
+		selected_machine.set_maintenance_policy_condition.bind(value),
+		selected_machine.set_maintenance_policy_condition.bind(previous_value)
+	)
+
+
+func _on_maintenance_policy_cash_reserve_changed(value: float) -> void:
+	if updating_controls or selected_machine == null:
+		return
+
+	var previous_value := selected_machine.maintenance_policy_cash_reserve
+
+	if is_equal_approx(previous_value, value):
+		return
+
+	_execute_setting_action(
+		"set maintenance cash reserve",
+		selected_machine.set_maintenance_policy_cash_reserve.bind(value),
+		selected_machine.set_maintenance_policy_cash_reserve.bind(previous_value)
+	)
 
 
 func _populate_resource_section(
@@ -1326,11 +1616,71 @@ func _state_color(state: MachineModel.State) -> Color:
 			return ThemeManager.COLOR_WARNING
 		MachineModel.State.DISABLED:
 			return ThemeManager.COLOR_DANGER
+		MachineModel.State.MAINTENANCE:
+			return ThemeManager.COLOR_ACCENT
+		MachineModel.State.FAILED:
+			return ThemeManager.COLOR_DANGER
 		_:
 			return ThemeManager.COLOR_ACCENT
 
 
+func _format_duration(seconds: float) -> String:
+	if seconds < 60.0:
+		return "%.0f s" % seconds
+
+	if seconds < 3600.0:
+		return "%.1f min" % (seconds / 60.0)
+
+	return "%.2f h" % (seconds / 3600.0)
+
+
+func _format_breakdown_risk(chance_per_hour: float) -> String:
+	var percent := chance_per_hour * 100.0
+
+	if percent > 0.0 and percent < 0.01:
+		return "<0.01% per operating hour"
+
+	if percent < 1.0:
+		return "%.2f%% per operating hour" % percent
+
+	return "%.1f%% per operating hour" % percent
+
+
+func _maintenance_policy_status(machine: MachineModel) -> String:
+	if not machine.maintenance_policy_enabled:
+		return "Manual"
+
+	if machine.is_under_maintenance():
+		return "Maintenance in progress"
+
+	if machine.is_failed():
+		return "Emergency repair required"
+
+	if machine.condition > machine.maintenance_policy_condition:
+		return "Armed"
+
+	if factory == null:
+		return "Waiting for factory"
+
+	if (
+		factory.cash_balance - machine.maintenance_cost
+		< machine.maintenance_policy_cash_reserve
+	):
+		return "Waiting for funds"
+
+	return "Scheduling service"
+
+
 func _condition_text(machine: MachineModel) -> String:
+	if machine.is_under_maintenance():
+		return "%s — %.1f s remaining" % [
+			"Emergency repair" if machine.maintenance_is_emergency else "Maintenance",
+			machine.maintenance_remaining_seconds
+		]
+
+	if machine.is_failed():
+		return "Failed — emergency repair required"
+
 	if machine.is_maintenance_critical():
 		return "Critical — maintenance required"
 
@@ -1341,6 +1691,12 @@ func _condition_text(machine: MachineModel) -> String:
 
 
 func _condition_color(machine: MachineModel) -> Color:
+	if machine.is_under_maintenance():
+		return ThemeManager.COLOR_ACCENT
+
+	if machine.is_failed():
+		return ThemeManager.COLOR_DANGER
+
 	if machine.is_maintenance_critical():
 		return ThemeManager.COLOR_DANGER
 

@@ -118,6 +118,18 @@ static func _serialize_machines(factory: FactoryModel) -> Array[Dictionary]:
 			"condition": machine.condition,
 			"operating_hours": machine.operating_hours,
 			"installed_upgrades": machine.installed_upgrades.duplicate(),
+			"maintenance_remaining_seconds": machine.maintenance_remaining_seconds,
+			"maintenance_total_seconds": machine.maintenance_total_seconds,
+			"maintenance_is_emergency": machine.maintenance_is_emergency,
+			"maintenance_policy_enabled": machine.maintenance_policy_enabled,
+			"maintenance_policy_condition": machine.maintenance_policy_condition,
+			"maintenance_policy_cash_reserve": machine.maintenance_policy_cash_reserve,
+			"preventive_maintenance_count": machine.preventive_maintenance_count,
+			"failure_count": machine.failure_count,
+			"emergency_repair_count": machine.emergency_repair_count,
+			"maintenance_spend": machine.maintenance_spend,
+			"maintenance_downtime_seconds": machine.maintenance_downtime_seconds,
+			"failed_downtime_seconds": machine.failed_downtime_seconds,
 			"state": int(machine.state),
 			"cycle_progress": machine.cycle_progress,
 			"inventory": machine.inventory.amounts.duplicate(true)
@@ -252,9 +264,76 @@ static func _deserialize_factory(
 			0.0,
 			1.0
 		)
+		machine.maintenance_policy_enabled = bool(
+			entry.get("maintenance_policy_enabled", false)
+		)
+		machine.maintenance_policy_condition = clampf(
+			float(
+				entry.get(
+					"maintenance_policy_condition",
+					machine.maintenance_warning_condition
+				)
+			),
+			0.01,
+			0.99
+		)
+		machine.maintenance_policy_cash_reserve = maxf(
+			0.0,
+			float(entry.get("maintenance_policy_cash_reserve", 0.0))
+		)
 		machine.operating_hours = maxf(
 			0.0,
 			float(entry.get("operating_hours", 0.0))
+		)
+		machine.preventive_maintenance_count = maxi(
+			0,
+			int(
+				entry.get(
+					"preventive_maintenance_count",
+					1
+					if (
+						float(entry.get("maintenance_remaining_seconds", 0.0)) > 0.0
+						and not bool(entry.get("maintenance_is_emergency", false))
+					)
+					else 0
+				)
+			)
+		)
+		machine.failure_count = maxi(
+			0,
+			int(entry.get("failure_count", 1 if machine.condition <= 0.0 else 0))
+		)
+		machine.emergency_repair_count = maxi(
+			0,
+			int(
+				entry.get(
+					"emergency_repair_count",
+					1 if bool(entry.get("maintenance_is_emergency", false)) else 0
+				)
+			)
+		)
+		machine.maintenance_spend = maxf(
+			0.0,
+			float(
+				entry.get(
+					"maintenance_spend",
+					(
+						machine.emergency_repair_cost
+						if bool(entry.get("maintenance_is_emergency", false))
+						else machine.maintenance_cost
+					)
+					if float(entry.get("maintenance_remaining_seconds", 0.0)) > 0.0
+					else 0.0
+				)
+			)
+		)
+		machine.maintenance_downtime_seconds = maxf(
+			0.0,
+			float(entry.get("maintenance_downtime_seconds", 0.0))
+		)
+		machine.failed_downtime_seconds = maxf(
+			0.0,
+			float(entry.get("failed_downtime_seconds", 0.0))
 		)
 		machine.restore_installed_upgrades(
 			entry.get("installed_upgrades", []) as Array
@@ -266,6 +345,11 @@ static func _deserialize_factory(
 		)
 		machine.state = int(
 			entry.get("state", MachineModel.State.IDLE)
+		)
+		machine.restore_maintenance(
+			float(entry.get("maintenance_remaining_seconds", 0.0)),
+			float(entry.get("maintenance_total_seconds", 0.0)),
+			bool(entry.get("maintenance_is_emergency", false))
 		)
 		machine.cycle_progress = float(
 			entry.get("cycle_progress", 0.0)

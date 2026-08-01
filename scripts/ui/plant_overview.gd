@@ -27,6 +27,16 @@ var production_signature := ""
 @onready var disabled_card := %DisabledCard as KpiCard
 @onready var connections_card := %ConnectionsCard as KpiCard
 @onready var power_card := %PowerCard as KpiCard
+@onready var maintenance_card := %MaintenanceCard as KpiCard
+@onready var failed_card := %FailedCard as KpiCard
+@onready var preventive_services_card := %PreventiveServicesCard as KpiCard
+@onready var automatic_policies_card := %AutomaticPoliciesCard as KpiCard
+@onready var breakdown_risk_card := %BreakdownRiskCard as KpiCard
+@onready var total_failures_card := %TotalFailuresCard as KpiCard
+@onready var emergency_repairs_card := %EmergencyRepairsCard as KpiCard
+@onready var maintenance_spend_card := %MaintenanceSpendCard as KpiCard
+@onready var maintenance_downtime_card := %MaintenanceDowntimeCard as KpiCard
+@onready var failed_downtime_card := %FailedDowntimeCard as KpiCard
 @onready var cash_card := %CashCard as KpiCard
 @onready var revenue_card := %RevenueCard as KpiCard
 @onready var expenses_card := %ExpensesCard as KpiCard
@@ -49,6 +59,16 @@ func _ready() -> void:
 	disabled_card.set_accent(ThemeManager.COLOR_DANGER)
 	connections_card.set_accent(ThemeManager.COLOR_ACCENT)
 	power_card.set_accent(ThemeManager.COLOR_WARNING)
+	maintenance_card.set_accent(ThemeManager.COLOR_ACCENT)
+	failed_card.set_accent(ThemeManager.COLOR_DANGER)
+	preventive_services_card.set_accent(ThemeManager.COLOR_SUCCESS)
+	automatic_policies_card.set_accent(ThemeManager.COLOR_ACCENT)
+	breakdown_risk_card.set_accent(ThemeManager.COLOR_WARNING)
+	total_failures_card.set_accent(ThemeManager.COLOR_DANGER)
+	emergency_repairs_card.set_accent(ThemeManager.COLOR_WARNING)
+	maintenance_spend_card.set_accent(ThemeManager.COLOR_WARNING)
+	maintenance_downtime_card.set_accent(ThemeManager.COLOR_ACCENT)
+	failed_downtime_card.set_accent(ThemeManager.COLOR_DANGER)
 	cash_card.set_accent(ThemeManager.COLOR_ACCENT)
 	revenue_card.set_accent(ThemeManager.COLOR_SUCCESS)
 	expenses_card.set_accent(ThemeManager.COLOR_DANGER)
@@ -88,6 +108,7 @@ func _connect_factory_events() -> void:
 		factory.event_bus.machine_production_changed,
 		factory.event_bus.machine_power_changed,
 		factory.event_bus.machine_condition_changed,
+		factory.event_bus.machine_maintenance_changed,
 		factory.event_bus.economy_changed
 	]
 
@@ -113,6 +134,7 @@ func _disconnect_factory_events() -> void:
 		factory.event_bus.machine_production_changed,
 		factory.event_bus.machine_power_changed,
 		factory.event_bus.machine_condition_changed,
+		factory.event_bus.machine_maintenance_changed,
 		factory.event_bus.economy_changed
 	]
 
@@ -146,8 +168,18 @@ func _refresh() -> void:
 	var blocked := 0
 	var disabled := 0
 	var maintenance_due := 0
+	var maintenance_active := 0
+	var failed := 0
 	var connection_count := 0
 	var total_power := 0.0
+	var preventive_services := 0
+	var automatic_policies := 0
+	var elevated_breakdown_risk := 0
+	var total_failures := 0
+	var emergency_repairs := 0
+	var maintenance_spend := 0.0
+	var maintenance_downtime := 0.0
+	var failed_downtime := 0.0
 	var inventory_totals: Dictionary = {}
 
 	if factory != null:
@@ -161,9 +193,22 @@ func _refresh() -> void:
 				continue
 
 			total_power += machine.power_demand
+			preventive_services += machine.preventive_maintenance_count
+			if machine.maintenance_policy_enabled:
+				automatic_policies += 1
+			if machine.is_breakdown_risk_warning():
+				elevated_breakdown_risk += 1
+			total_failures += machine.failure_count
+			emergency_repairs += machine.emergency_repair_count
+			maintenance_spend += machine.maintenance_spend
+			maintenance_downtime += machine.maintenance_downtime_seconds
+			failed_downtime += machine.failed_downtime_seconds
 
 			if machine.is_maintenance_due():
 				maintenance_due += 1
+
+			if machine.is_under_maintenance():
+				maintenance_active += 1
 
 			match machine.state:
 				MachineModel.State.RUNNING:
@@ -174,6 +219,10 @@ func _refresh() -> void:
 					blocked += 1
 				MachineModel.State.DISABLED:
 					disabled += 1
+				MachineModel.State.MAINTENANCE:
+					pass
+				MachineModel.State.FAILED:
+					failed += 1
 
 			for key: Variant in machine.inventory.amounts.keys():
 				var resource_id := str(key)
@@ -189,6 +238,16 @@ func _refresh() -> void:
 	disabled_card.set_value(str(disabled))
 	connections_card.set_value(str(connection_count))
 	power_card.set_value("%.2f PU" % total_power)
+	maintenance_card.set_value(str(maintenance_active))
+	failed_card.set_value(str(failed))
+	preventive_services_card.set_value(str(preventive_services))
+	automatic_policies_card.set_value(str(automatic_policies))
+	breakdown_risk_card.set_value(str(elevated_breakdown_risk))
+	total_failures_card.set_value(str(total_failures))
+	emergency_repairs_card.set_value(str(emergency_repairs))
+	maintenance_spend_card.set_value(_format_currency(maintenance_spend))
+	maintenance_downtime_card.set_value(_format_duration(maintenance_downtime))
+	failed_downtime_card.set_value(_format_duration(failed_downtime))
 	_update_economy()
 
 	_update_status(
@@ -196,7 +255,9 @@ func _refresh() -> void:
 		running,
 		blocked,
 		disabled,
-		maintenance_due
+		failed,
+		maintenance_due,
+		maintenance_active
 	)
 	_update_alerts()
 	_update_throughput()
@@ -336,12 +397,24 @@ func _format_currency(amount: float) -> String:
 	return "$%.2f" % amount
 
 
+func _format_duration(seconds: float) -> String:
+	if seconds < 60.0:
+		return "%.0f s" % seconds
+
+	if seconds < 3600.0:
+		return "%.1f min" % (seconds / 60.0)
+
+	return "%.2f h" % (seconds / 3600.0)
+
+
 func _update_status(
 	total: int,
 	running: int,
 	blocked: int,
 	disabled: int,
-	maintenance_due: int
+	failed: int,
+	maintenance_due: int,
+	maintenance_active: int
 ) -> void:
 	if factory != null and factory.cash_balance < 0.0:
 		status_banner.set_status(
@@ -352,6 +425,14 @@ func _update_status(
 		status_banner.set_status(
 			"No machines in this plant yet.",
 			ThemeManager.COLOR_TEXT_MUTED
+		)
+	elif failed > 0:
+		status_banner.set_status(
+			"%d failed machine%s require emergency repair." % [
+				failed,
+				"" if failed == 1 else "s"
+			],
+			ThemeManager.COLOR_DANGER
 		)
 	elif disabled > 0:
 		status_banner.set_status(
@@ -368,6 +449,14 @@ func _update_status(
 				"" if blocked == 1 else "s"
 			],
 			ThemeManager.COLOR_WARNING
+		)
+	elif maintenance_active > 0:
+		status_banner.set_status(
+			"%d maintenance job%s in progress." % [
+				maintenance_active,
+				"" if maintenance_active == 1 else "s"
+			],
+			ThemeManager.COLOR_ACCENT
 		)
 	elif maintenance_due > 0:
 		status_banner.set_status(
@@ -780,10 +869,11 @@ func _build_alert_signature(
 
 	for machine: MachineModel in machines:
 		parts.append(
-			"%s:%d:%.3f" % [
+			"%s:%d:%.3f:%.1f" % [
 				machine.instance_id,
 				machine.state,
-				machine.condition
+				machine.condition,
+				machine.maintenance_remaining_seconds
 			]
 		)
 
@@ -795,9 +885,13 @@ func _is_alert_machine(machine: MachineModel) -> bool:
 		machine.state in [
 			MachineModel.State.BLOCKED_INPUT,
 			MachineModel.State.BLOCKED_OUTPUT,
-			MachineModel.State.DISABLED
+			MachineModel.State.DISABLED,
+			MachineModel.State.MAINTENANCE,
+			MachineModel.State.FAILED
 		]
 		or machine.is_maintenance_due()
+		or _is_policy_waiting_for_funds(machine)
+		or machine.is_breakdown_risk_warning()
 	)
 
 
@@ -817,29 +911,66 @@ func _sort_alert_machines(
 
 
 func _alert_priority(machine: MachineModel) -> int:
-	if machine.state == MachineModel.State.DISABLED:
+	if machine.state == MachineModel.State.FAILED:
 		return 0
 
-	if machine.is_maintenance_critical():
+	if machine.state == MachineModel.State.DISABLED:
 		return 1
+
+	if _is_policy_waiting_for_funds(machine):
+		return 2
+
+	if machine.is_breakdown_risk_critical():
+		return 3
+
+	if machine.is_maintenance_critical():
+		return 4
+
+	if machine.is_breakdown_risk_warning():
+		return 5
+
+	if machine.is_under_maintenance():
+		return 6
 
 	if machine.state in [
 		MachineModel.State.BLOCKED_INPUT,
 		MachineModel.State.BLOCKED_OUTPUT
 	]:
-		return 2
+		return 7
 
-	return 3
+	return 8
 
 
 func _alert_detail(machine: MachineModel) -> String:
+	if _is_policy_waiting_for_funds(machine):
+		return "Automatic maintenance waiting for funds — reserve $%.2f" % (
+			machine.maintenance_policy_cash_reserve
+		)
+
 	match machine.state:
+		MachineModel.State.MAINTENANCE:
+			return "%s — %.1f s remaining" % [
+				"Emergency repair" if machine.maintenance_is_emergency else "Maintenance",
+				machine.maintenance_remaining_seconds
+			]
+		MachineModel.State.FAILED:
+			return "Failed — emergency repair required"
 		MachineModel.State.DISABLED:
 			return "Disabled"
 		MachineModel.State.BLOCKED_INPUT:
 			return "Blocked — waiting for input"
 		MachineModel.State.BLOCKED_OUTPUT:
 			return "Blocked — output has nowhere to go"
+
+	if machine.is_breakdown_risk_critical():
+		return "Critical breakdown risk — %.1f%% per operating hour" % (
+			machine.get_breakdown_chance_per_hour() * 100.0
+		)
+
+	if machine.is_breakdown_risk_warning():
+		return "Elevated breakdown risk — %.1f%% per operating hour" % (
+			machine.get_breakdown_chance_per_hour() * 100.0
+		)
 
 	if machine.is_maintenance_critical():
 		return "Critical condition — %.1f%%" % (
@@ -851,10 +982,31 @@ func _alert_detail(machine: MachineModel) -> String:
 	)
 
 
+func _is_policy_waiting_for_funds(machine: MachineModel) -> bool:
+	return (
+		factory != null
+		and machine.maintenance_policy_enabled
+		and not machine.is_under_maintenance()
+		and not machine.is_failed()
+		and machine.condition <= machine.maintenance_policy_condition
+		and (
+			factory.cash_balance - machine.maintenance_cost
+			< machine.maintenance_policy_cash_reserve
+		)
+	)
+
+
 func _alert_color(machine: MachineModel) -> Color:
+	if machine.is_under_maintenance():
+		return ThemeManager.COLOR_ACCENT
+
 	if (
-		machine.state == MachineModel.State.DISABLED
+		machine.state in [
+			MachineModel.State.DISABLED,
+			MachineModel.State.FAILED
+		]
 		or machine.is_maintenance_critical()
+		or machine.is_breakdown_risk_critical()
 	):
 		return ThemeManager.COLOR_DANGER
 

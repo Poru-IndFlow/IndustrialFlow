@@ -94,6 +94,81 @@ layout_mode = 2
 size_flags_horizontal = 3
 title_text = "Power Demand"
 
+[node name="MaintenanceCard" parent="Margin/Content/Metrics" instance=ExtResource("2")]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+title_text = "In Maintenance"
+
+[node name="FailedCard" parent="Margin/Content/Metrics" instance=ExtResource("2")]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+title_text = "Failed"
+
+[node name="ReliabilityTitle" type="Label" parent="Margin/Content"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 15
+text = "Maintenance & Reliability"
+
+[node name="ReliabilityHelp" type="Label" parent="Margin/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.603922, 0.65098, 0.721569, 1)
+text = "Persistent plant-wide maintenance history and accumulated downtime."
+
+[node name="ReliabilityMetrics" type="GridContainer" parent="Margin/Content"]
+layout_mode = 2
+size_flags_horizontal = 3
+columns = 3
+
+[node name="PreventiveServicesCard" parent="Margin/Content/ReliabilityMetrics" instance=ExtResource("2")]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+title_text = "Preventive Services"
+
+[node name="AutomaticPoliciesCard" parent="Margin/Content/ReliabilityMetrics" instance=ExtResource("2")]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+title_text = "Automatic Policies"
+
+[node name="BreakdownRiskCard" parent="Margin/Content/ReliabilityMetrics" instance=ExtResource("2")]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+title_text = "Elevated Breakdown Risk"
+
+[node name="TotalFailuresCard" parent="Margin/Content/ReliabilityMetrics" instance=ExtResource("2")]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+title_text = "Total Failures"
+
+[node name="EmergencyRepairsCard" parent="Margin/Content/ReliabilityMetrics" instance=ExtResource("2")]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+title_text = "Emergency Repairs"
+
+[node name="MaintenanceSpendCard" parent="Margin/Content/ReliabilityMetrics" instance=ExtResource("2")]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+title_text = "Maintenance Spend"
+
+[node name="MaintenanceDowntimeCard" parent="Margin/Content/ReliabilityMetrics" instance=ExtResource("2")]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+title_text = "Maintenance Downtime"
+
+[node name="FailedDowntimeCard" parent="Margin/Content/ReliabilityMetrics" instance=ExtResource("2")]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+title_text = "Failed Downtime"
+
 [node name="EconomyTitle" type="Label" parent="Margin/Content"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 15
