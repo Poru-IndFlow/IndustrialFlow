@@ -406,7 +406,7 @@ func can_start_machine_maintenance(machine: MachineModel) -> bool:
 	return (
 		machine != null
 		and machine.can_start_maintenance()
-		and cash_balance >= machine.maintenance_cost
+		and cash_balance >= machine.get_current_maintenance_cost()
 	)
 
 
@@ -414,15 +414,17 @@ func start_machine_maintenance(machine: MachineModel) -> bool:
 	if not can_start_machine_maintenance(machine):
 		return false
 
+	var maintenance_cost := machine.get_current_maintenance_cost()
+
 	if not machine.start_maintenance():
 		return false
 
-	cash_balance -= machine.maintenance_cost
-	total_expenses += machine.maintenance_cost
+	cash_balance -= maintenance_cost
+	total_expenses += maintenance_cost
 	_adjust_machine_lifetime(
 		machine.instance_id,
 		0.0,
-		machine.maintenance_cost
+		maintenance_cost
 	)
 	_emit_economy_changed()
 	return true

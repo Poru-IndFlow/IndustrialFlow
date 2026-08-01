@@ -1035,9 +1035,14 @@ func _update_condition_labels() -> void:
 	operating_hours_value_label.text = "%.3f h" % (
 		selected_machine.operating_hours
 	)
-	maintenance_plan_value_label.text = "$%.2f · %.0f s" % [
-		selected_machine.maintenance_cost,
-		selected_machine.maintenance_duration_seconds
+	var emergency_repair := (
+		selected_machine.maintenance_is_emergency
+		or selected_machine.is_failed()
+	)
+	maintenance_plan_value_label.text = "%s · $%.2f · %.0f s" % [
+		"Emergency" if emergency_repair else "Planned",
+		selected_machine.get_current_maintenance_cost(),
+		selected_machine.get_current_maintenance_duration()
 	]
 	maintenance_progress_bar.visible = (
 		selected_machine.is_under_maintenance()
@@ -1045,15 +1050,19 @@ func _update_condition_labels() -> void:
 	maintenance_progress_bar.value = (
 		selected_machine.get_maintenance_progress() * 100.0
 	)
-	maintenance_button.text = (
-		"Maintenance — %.1f s remaining" % (
+	if selected_machine.is_under_maintenance():
+		maintenance_button.text = "%s — %.1f s remaining" % [
+			"Emergency repair" if emergency_repair else "Maintenance",
 			selected_machine.maintenance_remaining_seconds
+		]
+	elif emergency_repair:
+		maintenance_button.text = "Begin Emergency Repair — $%.2f" % (
+			selected_machine.get_current_maintenance_cost()
 		)
-		if selected_machine.is_under_maintenance()
-		else "Perform Maintenance — $%.2f" % (
-			selected_machine.maintenance_cost
+	else:
+		maintenance_button.text = "Perform Maintenance — $%.2f" % (
+			selected_machine.get_current_maintenance_cost()
 		)
-	)
 	maintenance_button.disabled = (
 		selected_machine.is_under_maintenance()
 		or factory == null
@@ -1398,15 +1407,21 @@ func _state_color(state: MachineModel.State) -> Color:
 			return ThemeManager.COLOR_DANGER
 		MachineModel.State.MAINTENANCE:
 			return ThemeManager.COLOR_ACCENT
+		MachineModel.State.FAILED:
+			return ThemeManager.COLOR_DANGER
 		_:
 			return ThemeManager.COLOR_ACCENT
 
 
 func _condition_text(machine: MachineModel) -> String:
 	if machine.is_under_maintenance():
-		return "Maintenance — %.1f s remaining" % (
+		return "%s — %.1f s remaining" % [
+			"Emergency repair" if machine.maintenance_is_emergency else "Maintenance",
 			machine.maintenance_remaining_seconds
-		)
+		]
+
+	if machine.is_failed():
+		return "Failed — emergency repair required"
 
 	if machine.is_maintenance_critical():
 		return "Critical — maintenance required"
@@ -1420,6 +1435,9 @@ func _condition_text(machine: MachineModel) -> String:
 func _condition_color(machine: MachineModel) -> Color:
 	if machine.is_under_maintenance():
 		return ThemeManager.COLOR_ACCENT
+
+	if machine.is_failed():
+		return ThemeManager.COLOR_DANGER
 
 	if machine.is_maintenance_critical():
 		return ThemeManager.COLOR_DANGER

@@ -28,6 +28,7 @@ var production_signature := ""
 @onready var connections_card := %ConnectionsCard as KpiCard
 @onready var power_card := %PowerCard as KpiCard
 @onready var maintenance_card := %MaintenanceCard as KpiCard
+@onready var failed_card := %FailedCard as KpiCard
 @onready var cash_card := %CashCard as KpiCard
 @onready var revenue_card := %RevenueCard as KpiCard
 @onready var expenses_card := %ExpensesCard as KpiCard
@@ -51,6 +52,7 @@ func _ready() -> void:
 	connections_card.set_accent(ThemeManager.COLOR_ACCENT)
 	power_card.set_accent(ThemeManager.COLOR_WARNING)
 	maintenance_card.set_accent(ThemeManager.COLOR_ACCENT)
+	failed_card.set_accent(ThemeManager.COLOR_DANGER)
 	cash_card.set_accent(ThemeManager.COLOR_ACCENT)
 	revenue_card.set_accent(ThemeManager.COLOR_SUCCESS)
 	expenses_card.set_accent(ThemeManager.COLOR_DANGER)
@@ -151,6 +153,7 @@ func _refresh() -> void:
 	var disabled := 0
 	var maintenance_due := 0
 	var maintenance_active := 0
+	var failed := 0
 	var connection_count := 0
 	var total_power := 0.0
 	var inventory_totals: Dictionary = {}
@@ -184,6 +187,8 @@ func _refresh() -> void:
 					disabled += 1
 				MachineModel.State.MAINTENANCE:
 					pass
+				MachineModel.State.FAILED:
+					failed += 1
 
 			for key: Variant in machine.inventory.amounts.keys():
 				var resource_id := str(key)
@@ -200,6 +205,7 @@ func _refresh() -> void:
 	connections_card.set_value(str(connection_count))
 	power_card.set_value("%.2f PU" % total_power)
 	maintenance_card.set_value(str(maintenance_active))
+	failed_card.set_value(str(failed))
 	_update_economy()
 
 	_update_status(
@@ -207,6 +213,7 @@ func _refresh() -> void:
 		running,
 		blocked,
 		disabled,
+		failed,
 		maintenance_due,
 		maintenance_active
 	)
@@ -353,6 +360,7 @@ func _update_status(
 	running: int,
 	blocked: int,
 	disabled: int,
+	failed: int,
 	maintenance_due: int,
 	maintenance_active: int
 ) -> void:
@@ -365,6 +373,14 @@ func _update_status(
 		status_banner.set_status(
 			"No machines in this plant yet.",
 			ThemeManager.COLOR_TEXT_MUTED
+		)
+	elif failed > 0:
+		status_banner.set_status(
+			"%d failed machine%s require emergency repair." % [
+				failed,
+				"" if failed == 1 else "s"
+			],
+			ThemeManager.COLOR_DANGER
 		)
 	elif disabled > 0:
 		status_banner.set_status(
@@ -818,7 +834,8 @@ func _is_alert_machine(machine: MachineModel) -> bool:
 			MachineModel.State.BLOCKED_INPUT,
 			MachineModel.State.BLOCKED_OUTPUT,
 			MachineModel.State.DISABLED,
-			MachineModel.State.MAINTENANCE
+			MachineModel.State.MAINTENANCE,
+			MachineModel.State.FAILED
 		]
 		or machine.is_maintenance_due()
 	)
@@ -840,30 +857,36 @@ func _sort_alert_machines(
 
 
 func _alert_priority(machine: MachineModel) -> int:
-	if machine.state == MachineModel.State.DISABLED:
+	if machine.state == MachineModel.State.FAILED:
 		return 0
 
-	if machine.is_maintenance_critical():
+	if machine.state == MachineModel.State.DISABLED:
 		return 1
 
-	if machine.is_under_maintenance():
+	if machine.is_maintenance_critical():
 		return 2
+
+	if machine.is_under_maintenance():
+		return 3
 
 	if machine.state in [
 		MachineModel.State.BLOCKED_INPUT,
 		MachineModel.State.BLOCKED_OUTPUT
 	]:
-		return 3
+		return 4
 
-	return 4
+	return 5
 
 
 func _alert_detail(machine: MachineModel) -> String:
 	match machine.state:
 		MachineModel.State.MAINTENANCE:
-			return "Maintenance — %.1f s remaining" % (
+			return "%s — %.1f s remaining" % [
+				"Emergency repair" if machine.maintenance_is_emergency else "Maintenance",
 				machine.maintenance_remaining_seconds
-			)
+			]
+		MachineModel.State.FAILED:
+			return "Failed — emergency repair required"
 		MachineModel.State.DISABLED:
 			return "Disabled"
 		MachineModel.State.BLOCKED_INPUT:
@@ -886,7 +909,10 @@ func _alert_color(machine: MachineModel) -> Color:
 		return ThemeManager.COLOR_ACCENT
 
 	if (
-		machine.state == MachineModel.State.DISABLED
+		machine.state in [
+			MachineModel.State.DISABLED,
+			MachineModel.State.FAILED
+		]
 		or machine.is_maintenance_critical()
 	):
 		return ThemeManager.COLOR_DANGER
