@@ -31,6 +31,7 @@ var production_signature := ""
 @onready var failed_card := %FailedCard as KpiCard
 @onready var preventive_services_card := %PreventiveServicesCard as KpiCard
 @onready var automatic_policies_card := %AutomaticPoliciesCard as KpiCard
+@onready var breakdown_risk_card := %BreakdownRiskCard as KpiCard
 @onready var total_failures_card := %TotalFailuresCard as KpiCard
 @onready var emergency_repairs_card := %EmergencyRepairsCard as KpiCard
 @onready var maintenance_spend_card := %MaintenanceSpendCard as KpiCard
@@ -62,6 +63,7 @@ func _ready() -> void:
 	failed_card.set_accent(ThemeManager.COLOR_DANGER)
 	preventive_services_card.set_accent(ThemeManager.COLOR_SUCCESS)
 	automatic_policies_card.set_accent(ThemeManager.COLOR_ACCENT)
+	breakdown_risk_card.set_accent(ThemeManager.COLOR_WARNING)
 	total_failures_card.set_accent(ThemeManager.COLOR_DANGER)
 	emergency_repairs_card.set_accent(ThemeManager.COLOR_WARNING)
 	maintenance_spend_card.set_accent(ThemeManager.COLOR_WARNING)
@@ -172,6 +174,7 @@ func _refresh() -> void:
 	var total_power := 0.0
 	var preventive_services := 0
 	var automatic_policies := 0
+	var elevated_breakdown_risk := 0
 	var total_failures := 0
 	var emergency_repairs := 0
 	var maintenance_spend := 0.0
@@ -193,6 +196,8 @@ func _refresh() -> void:
 			preventive_services += machine.preventive_maintenance_count
 			if machine.maintenance_policy_enabled:
 				automatic_policies += 1
+			if machine.is_breakdown_risk_warning():
+				elevated_breakdown_risk += 1
 			total_failures += machine.failure_count
 			emergency_repairs += machine.emergency_repair_count
 			maintenance_spend += machine.maintenance_spend
@@ -237,6 +242,7 @@ func _refresh() -> void:
 	failed_card.set_value(str(failed))
 	preventive_services_card.set_value(str(preventive_services))
 	automatic_policies_card.set_value(str(automatic_policies))
+	breakdown_risk_card.set_value(str(elevated_breakdown_risk))
 	total_failures_card.set_value(str(total_failures))
 	emergency_repairs_card.set_value(str(emergency_repairs))
 	maintenance_spend_card.set_value(_format_currency(maintenance_spend))
@@ -885,6 +891,7 @@ func _is_alert_machine(machine: MachineModel) -> bool:
 		]
 		or machine.is_maintenance_due()
 		or _is_policy_waiting_for_funds(machine)
+		or machine.is_breakdown_risk_warning()
 	)
 
 
@@ -913,19 +920,25 @@ func _alert_priority(machine: MachineModel) -> int:
 	if _is_policy_waiting_for_funds(machine):
 		return 2
 
-	if machine.is_maintenance_critical():
+	if machine.is_breakdown_risk_critical():
 		return 3
 
-	if machine.is_under_maintenance():
+	if machine.is_maintenance_critical():
 		return 4
+
+	if machine.is_breakdown_risk_warning():
+		return 5
+
+	if machine.is_under_maintenance():
+		return 6
 
 	if machine.state in [
 		MachineModel.State.BLOCKED_INPUT,
 		MachineModel.State.BLOCKED_OUTPUT
 	]:
-		return 5
+		return 7
 
-	return 6
+	return 8
 
 
 func _alert_detail(machine: MachineModel) -> String:
@@ -948,6 +961,16 @@ func _alert_detail(machine: MachineModel) -> String:
 			return "Blocked — waiting for input"
 		MachineModel.State.BLOCKED_OUTPUT:
 			return "Blocked — output has nowhere to go"
+
+	if machine.is_breakdown_risk_critical():
+		return "Critical breakdown risk — %.1f%% per operating hour" % (
+			machine.get_breakdown_chance_per_hour() * 100.0
+		)
+
+	if machine.is_breakdown_risk_warning():
+		return "Elevated breakdown risk — %.1f%% per operating hour" % (
+			machine.get_breakdown_chance_per_hour() * 100.0
+		)
 
 	if machine.is_maintenance_critical():
 		return "Critical condition — %.1f%%" % (
@@ -983,6 +1006,7 @@ func _alert_color(machine: MachineModel) -> Color:
 			MachineModel.State.FAILED
 		]
 		or machine.is_maintenance_critical()
+		or machine.is_breakdown_risk_critical()
 	):
 		return ThemeManager.COLOR_DANGER
 

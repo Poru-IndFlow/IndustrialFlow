@@ -22,6 +22,7 @@ var power_mode_value_label: Label
 var maintenance_section: VBoxContainer
 var condition_badge: Label
 var condition_value_label: Label
+var breakdown_risk_value_label: Label
 var condition_efficiency_value_label: Label
 var wear_power_value_label: Label
 var operating_hours_value_label: Label
@@ -187,6 +188,15 @@ func _ready() -> void:
 		condition_row
 	)
 	maintenance_section.add_child(condition_row)
+
+	var breakdown_risk_row := UIWidgets.create_labeled_value(
+		"Breakdown chance",
+		"0% per operating hour"
+	)
+	breakdown_risk_value_label = UIWidgets.get_value_label(
+		breakdown_risk_row
+	)
+	maintenance_section.add_child(breakdown_risk_row)
 
 	var condition_efficiency_row := UIWidgets.create_labeled_value(
 		"Condition efficiency",
@@ -1093,6 +1103,7 @@ func _update_condition_labels() -> void:
 	if (
 		condition_badge == null
 		or condition_value_label == null
+		or breakdown_risk_value_label == null
 		or condition_efficiency_value_label == null
 		or wear_power_value_label == null
 		or operating_hours_value_label == null
@@ -1112,6 +1123,7 @@ func _update_condition_labels() -> void:
 
 	if selected_machine == null:
 		condition_value_label.text = "100%"
+		breakdown_risk_value_label.text = "0% per operating hour"
 		condition_efficiency_value_label.text = "100%"
 		wear_power_value_label.text = "1.00×"
 		operating_hours_value_label.text = "0.00 h"
@@ -1140,6 +1152,9 @@ func _update_condition_labels() -> void:
 
 	condition_value_label.text = "%.1f%%" % (
 		selected_machine.condition * 100.0
+	)
+	breakdown_risk_value_label.text = _format_breakdown_risk(
+		selected_machine.get_breakdown_chance_per_hour()
 	)
 	condition_efficiency_value_label.text = "%.1f%%" % (
 		selected_machine.get_condition_efficiency() * 100.0
@@ -1617,6 +1632,18 @@ func _format_duration(seconds: float) -> String:
 		return "%.1f min" % (seconds / 60.0)
 
 	return "%.2f h" % (seconds / 3600.0)
+
+
+func _format_breakdown_risk(chance_per_hour: float) -> String:
+	var percent := chance_per_hour * 100.0
+
+	if percent > 0.0 and percent < 0.01:
+		return "<0.01% per operating hour"
+
+	if percent < 1.0:
+		return "%.2f%% per operating hour" % percent
+
+	return "%.1f%% per operating hour" % percent
 
 
 func _maintenance_policy_status(machine: MachineModel) -> String:

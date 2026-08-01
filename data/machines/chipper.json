@@ -22,6 +22,26 @@
   "maintenance_duration_seconds": 30.0,
   "emergency_repair_cost": 900.0,
   "emergency_repair_duration_seconds": 60.0,
+  "breakdown_warning_chance_per_hour": 0.05,
+  "breakdown_critical_chance_per_hour": 0.2,
+  "breakdown_chance_curve": [
+	{
+	  "condition": 0.0,
+	  "chance": 1.0
+	},
+	{
+	  "condition": 0.5,
+	  "chance": 0.2
+	},
+	{
+	  "condition": 0.98,
+	  "chance": 0.0001
+	},
+	{
+	  "condition": 1.0,
+	  "chance": 0.0
+	}
+  ],
   "performance_curve": [
 	{
 	  "speed": 0.0,

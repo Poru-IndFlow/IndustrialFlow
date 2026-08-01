@@ -33,6 +33,9 @@ var ramp_up_seconds := 1.0
 var ramp_down_seconds := 1.0
 var performance_curve: Array[Dictionary] = []
 var power_curve: Array[Dictionary] = []
+var breakdown_chance_curve: Array[Dictionary] = []
+var breakdown_warning_chance_per_hour := 0.05
+var breakdown_critical_chance_per_hour := 0.2
 var idle_power_ratio := 0.15
 var power_demand := 0.0
 var condition := 1.0
@@ -113,6 +116,29 @@ static func create(
 		machine_definition,
 		"power_curve",
 		"power"
+	)
+	machine.breakdown_chance_curve = _load_breakdown_chance_curve(
+		machine_definition
+	)
+	machine.breakdown_warning_chance_per_hour = clampf(
+		float(
+			machine_definition.get(
+				"breakdown_warning_chance_per_hour",
+				0.05
+			)
+		),
+		0.0,
+		1.0
+	)
+	machine.breakdown_critical_chance_per_hour = clampf(
+		float(
+			machine_definition.get(
+				"breakdown_critical_chance_per_hour",
+				0.2
+			)
+		),
+		machine.breakdown_warning_chance_per_hour,
+		1.0
 	)
 	machine.idle_power_ratio = clampf(
 		float(machine_definition.get("idle_power_ratio", 0.15)),
@@ -285,6 +311,40 @@ static func _load_curve(
 	return result
 
 
+static func _load_breakdown_chance_curve(
+	machine_definition: Dictionary
+) -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	var entries: Array = machine_definition.get(
+		"breakdown_chance_curve",
+		[]
+	)
+
+	for value: Variant in entries:
+		if not value is Dictionary:
+			continue
+
+		var entry := value as Dictionary
+		result.append({
+			"condition": clampf(
+				float(entry.get("condition", 1.0)),
+				0.0,
+				1.0
+			),
+			"chance": clampf(
+				float(entry.get("chance", 0.0)),
+				0.0,
+				1.0
+			)
+		})
+
+	result.sort_custom(
+		func(left: Dictionary, right: Dictionary) -> bool:
+			return float(left["condition"]) < float(right["condition"])
+	)
+	return result
+
+
 func tick(delta_seconds: float) -> void:
 	if is_under_maintenance():
 		actual_operating_rate = 0.0
@@ -313,6 +373,7 @@ func tick(delta_seconds: float) -> void:
 		return
 
 	behaviour.tick(self, delta_seconds)
+	_roll_for_breakdown(delta_seconds)
 	_advance_wear(delta_seconds)
 	_update_power_demand()
 
@@ -657,6 +718,89 @@ func get_total_downtime_seconds() -> float:
 	return maintenance_downtime_seconds + failed_downtime_seconds
 
 
+func get_breakdown_chance_per_hour() -> float:
+	if breakdown_chance_curve.is_empty():
+		return 0.0
+
+	var first := breakdown_chance_curve[0]
+
+	if condition <= float(first["condition"]):
+		return float(first["chance"])
+
+	for index: int in range(1, breakdown_chance_curve.size()):
+		var left := breakdown_chance_curve[index - 1]
+		var right := breakdown_chance_curve[index]
+		var right_condition := float(right["condition"])
+
+		if condition <= right_condition:
+			var left_condition := float(left["condition"])
+			var span := right_condition - left_condition
+			var weight := (
+				(condition - left_condition) / span
+				if span > 0.0
+				else 0.0
+			)
+			return lerpf(
+				float(left["chance"]),
+				float(right["chance"]),
+				weight
+			)
+
+	return float(breakdown_chance_curve[-1]["chance"])
+
+
+func is_breakdown_risk_warning() -> bool:
+	return (
+		not is_failed()
+		and not is_under_maintenance()
+		and get_breakdown_chance_per_hour()
+		>= breakdown_warning_chance_per_hour
+	)
+
+
+func is_breakdown_risk_critical() -> bool:
+	return (
+		not is_failed()
+		and not is_under_maintenance()
+		and get_breakdown_chance_per_hour()
+		>= breakdown_critical_chance_per_hour
+	)
+
+
+func _roll_for_breakdown(delta_seconds: float) -> void:
+	if (
+		delta_seconds <= 0.0
+		or state != State.RUNNING
+		or not supports_maintenance()
+	):
+		return
+
+	var hourly_chance := get_breakdown_chance_per_hour()
+
+	if hourly_chance <= 0.0:
+		return
+
+	var exposure_hours := (
+		delta_seconds * maxf(actual_operating_rate, 0.0) / 3600.0
+	)
+	var tick_chance := 1.0 - pow(1.0 - hourly_chance, exposure_hours)
+
+	if randf() < tick_chance:
+		_fail_machine()
+
+
+func _fail_machine() -> void:
+	if state == State.FAILED:
+		return
+
+	condition = 0.0
+	actual_operating_rate = 0.0
+	failure_count += 1
+	_last_condition_notification = condition
+	set_state(State.FAILED)
+	notify_condition_changed()
+
+
 func _notify_maintenance_changed() -> void:
 	if event_bus != null:
 		event_bus.machine_maintenance_changed.emit(self)
@@ -685,10 +829,7 @@ func _advance_wear(delta_seconds: float) -> void:
 	)
 
 	if condition <= 0.0:
-		condition = 0.0
-		actual_operating_rate = 0.0
-		failure_count += 1
-		set_state(State.FAILED)
+		_fail_machine()
 
 	if (
 		absf(condition - _last_condition_notification) >= 0.0025
