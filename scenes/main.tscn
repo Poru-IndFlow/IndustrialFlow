@@ -1,4 +1,4 @@
-[gd_scene load_steps=15 format=3]
+[gd_scene load_steps=16 format=3]
 
 [ext_resource type="Script" path="res://scripts/ui/factory_graph.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/app/app_controller.gd" id="2"]
@@ -14,6 +14,7 @@
 [ext_resource type="PackedScene" path="res://scenes/ui/research_workspace.tscn" id="12"]
 [ext_resource type="PackedScene" path="res://scenes/ui/scada_workspace.tscn" id="13"]
 [ext_resource type="PackedScene" path="res://scenes/ui/production_planning.tscn" id="14"]
+[ext_resource type="PackedScene" path="res://scenes/ui/customer_orders.tscn" id="15"]
 
 [node name="Main" type="Control"]
 layout_mode = 3
@@ -72,6 +73,9 @@ layout_mode = 2
 layout_mode = 2
 
 [node name="Production Planning" parent="RootVBox/Workspace/EditorSplit/WorkspaceTabs" instance=ExtResource("14")]
+layout_mode = 2
+
+[node name="Customer Orders" parent="RootVBox/Workspace/EditorSplit/WorkspaceTabs" instance=ExtResource("15")]
 layout_mode = 2
 
 [node name="Research" parent="RootVBox/Workspace/EditorSplit/WorkspaceTabs" instance=ExtResource("12")]
