@@ -151,6 +151,7 @@ func set_factory(new_factory: FactoryModel) -> void:
 func _on_tick_advanced(delta_seconds: float) -> void:
 	if factory != null:
 		factory.tick(delta_seconds)
+		scada_workspace.advance(delta_seconds)
 		controller_trends.advance(delta_seconds)
 		_update_simulation_toolbar()
 

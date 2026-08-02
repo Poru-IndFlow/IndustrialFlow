@@ -45,6 +45,37 @@ right_disconnects = false
 show_arrange_button = false
 minimap_enabled = true
 
+[node name="AlarmPanel" type="PanelContainer" parent="."]
+custom_minimum_size = Vector2(0, 190)
+layout_mode = 2
+
+[node name="AlarmContent" type="VBoxContainer" parent="AlarmPanel"]
+layout_mode = 2
+
+[node name="AlarmHeader" type="HBoxContainer" parent="AlarmPanel/AlarmContent"]
+layout_mode = 2
+
+[node name="AlarmTitle" type="Label" parent="AlarmPanel/AlarmContent/AlarmHeader"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 15
+text = "SCADA Alarms"
+
+[node name="AlarmCountLabel" type="Label" parent="AlarmPanel/AlarmContent/AlarmHeader"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "0 active"
+
+[node name="AlarmScroll" type="ScrollContainer" parent="AlarmPanel/AlarmContent"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="AlarmList" type="VBoxContainer" parent="AlarmPanel/AlarmContent/AlarmScroll"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+
 [node name="Footer" type="Label" parent="."]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.603922, 0.65098, 0.721569, 1)

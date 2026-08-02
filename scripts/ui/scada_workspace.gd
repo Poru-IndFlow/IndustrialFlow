@@ -4,32 +4,55 @@ extends VBoxContainer
 
 signal machine_requested(machine: MachineModel)
 
+const ALARM_ROW_SCENE := preload(
+	"res://scenes/ui/scada_alarm_row.tscn"
+)
+const SEVERITY_CRITICAL := 0
+const SEVERITY_WARNING := 1
+const SEVERITY_INFORMATION := 2
+
 var factory: FactoryModel
 var input_ports: Dictionary = {}
 var output_ports: Dictionary = {}
 var state_labels: Dictionary = {}
 var metrics_labels: Dictionary = {}
 var resource_labels: Dictionary = {}
+var alarm_active_seconds: Dictionary = {}
+var alarm_severity_by_key: Dictionary = {}
+var active_alarm_records: Dictionary = {}
+var cleared_unacknowledged_alarms: Dictionary = {}
+var acknowledged_alarms: Dictionary = {}
+var alarm_refresh_elapsed := 0.0
 
 @onready var build_label := %BuildLabel as Label
 @onready var system_status := %SystemStatus as Label
 @onready var fit_plant_button := %FitPlantButton as Button
 @onready var process_graph := %ProcessGraph as GraphEdit
+@onready var alarm_count_label := %AlarmCountLabel as Label
+@onready var alarm_list := %AlarmList as VBoxContainer
 
 
 func _ready() -> void:
 	build_label.text = BuildInfo.get_display_string()
 	fit_plant_button.pressed.connect(_fit_plant)
 	_update_system_status()
+	_refresh_alarms()
 
 
 func bind_factory(new_factory: FactoryModel) -> void:
 	_disconnect_factory_events()
 	factory = new_factory
+	alarm_active_seconds.clear()
+	alarm_severity_by_key.clear()
+	active_alarm_records.clear()
+	cleared_unacknowledged_alarms.clear()
+	acknowledged_alarms.clear()
+	alarm_refresh_elapsed = 0.0
 	_clear_graph()
 
 	if factory == null:
 		_update_system_status()
+		_refresh_alarms()
 		return
 
 	_connect_factory_events()
@@ -39,7 +62,29 @@ func bind_factory(new_factory: FactoryModel) -> void:
 
 	_rebuild_connections()
 	_update_system_status()
+	_refresh_alarms()
 	call_deferred("_fit_plant")
+
+
+func advance(delta_seconds: float) -> void:
+	if delta_seconds <= 0.0:
+		return
+
+	var alarms := _collect_alarms()
+	_sync_alarm_state(alarms)
+
+	for alarm: Dictionary in alarms:
+		var key := str(alarm["key"])
+		alarm_active_seconds[key] = (
+			float(alarm_active_seconds.get(key, 0.0))
+			+ delta_seconds
+		)
+
+	alarm_refresh_elapsed += delta_seconds
+
+	if alarm_refresh_elapsed >= 1.0:
+		alarm_refresh_elapsed = fmod(alarm_refresh_elapsed, 1.0)
+		_refresh_alarms()
 
 
 func _connect_factory_events() -> void:
@@ -48,16 +93,17 @@ func _connect_factory_events() -> void:
 
 	factory.event_bus.machine_added.connect(_on_machine_added)
 	factory.event_bus.machine_removed.connect(_on_machine_removed)
-	factory.event_bus.machine_state_changed.connect(_on_machine_changed)
+	factory.event_bus.machine_state_changed.connect(_on_alarm_machine_changed)
 	factory.event_bus.machine_inventory_changed.connect(_on_machine_changed)
 	factory.event_bus.machine_performance_changed.connect(_on_machine_changed)
 	factory.event_bus.machine_power_changed.connect(_on_machine_changed)
-	factory.event_bus.machine_condition_changed.connect(_on_machine_changed)
-	factory.event_bus.machine_maintenance_changed.connect(_on_machine_changed)
+	factory.event_bus.machine_condition_changed.connect(_on_alarm_machine_changed)
+	factory.event_bus.machine_settings_changed.connect(_on_alarm_machine_changed)
 	factory.event_bus.connection_added.connect(_on_connection_added)
 	factory.event_bus.connection_removed.connect(_on_connection_removed)
 	factory.event_bus.connection_flow_changed.connect(_on_connection_changed)
 	factory.event_bus.connection_settings_changed.connect(_on_connection_changed)
+	factory.event_bus.economy_changed.connect(_on_economy_changed)
 
 
 func _disconnect_factory_events() -> void:
@@ -75,16 +121,26 @@ func _disconnect_factory_events() -> void:
 
 	var machine_callback := Callable(self, "_on_machine_changed")
 	var machine_signals: Array[Signal] = [
-		factory.event_bus.machine_state_changed,
 		factory.event_bus.machine_inventory_changed,
 		factory.event_bus.machine_performance_changed,
-		factory.event_bus.machine_power_changed,
-		factory.event_bus.machine_condition_changed,
-		factory.event_bus.machine_maintenance_changed
+		factory.event_bus.machine_power_changed
 	]
 
 	for factory_signal: Signal in machine_signals:
 		_disconnect_signal(factory_signal, machine_callback)
+
+	var alarm_machine_callback := Callable(
+		self,
+		"_on_alarm_machine_changed"
+	)
+	var alarm_machine_signals: Array[Signal] = [
+		factory.event_bus.machine_state_changed,
+		factory.event_bus.machine_condition_changed,
+		factory.event_bus.machine_settings_changed
+	]
+
+	for factory_signal: Signal in alarm_machine_signals:
+		_disconnect_signal(factory_signal, alarm_machine_callback)
 
 	_disconnect_signal(
 		factory.event_bus.connection_added,
@@ -103,6 +159,10 @@ func _disconnect_factory_events() -> void:
 	_disconnect_signal(
 		factory.event_bus.connection_settings_changed,
 		connection_callback
+	)
+	_disconnect_signal(
+		factory.event_bus.economy_changed,
+		Callable(self, "_on_economy_changed")
 	)
 
 
@@ -408,6 +468,335 @@ func _update_system_status() -> void:
 		)
 
 
+func _collect_alarms() -> Array[Dictionary]:
+	var alarms: Array[Dictionary] = []
+
+	if factory == null:
+		return alarms
+
+	for value: Variant in factory.machines.values():
+		var machine := value as MachineModel
+
+		if machine == null:
+			continue
+
+		if machine.is_under_maintenance():
+			continue
+
+		if machine.is_failed():
+			alarms.append(_make_alarm(
+				machine,
+				"failed",
+				SEVERITY_CRITICAL,
+				"Machine failed — emergency repair required"
+			))
+			continue
+
+		if machine.state == MachineModel.State.DISABLED:
+			alarms.append(_make_alarm(
+				machine,
+				"disabled",
+				SEVERITY_WARNING,
+				"Machine disabled"
+			))
+
+		match machine.state:
+			MachineModel.State.BLOCKED_INPUT:
+				alarms.append(_make_alarm(
+					machine,
+					"blocked_input",
+					SEVERITY_WARNING,
+					"Blocked — waiting for input"
+				))
+			MachineModel.State.BLOCKED_OUTPUT:
+				alarms.append(_make_alarm(
+					machine,
+					"blocked_output",
+					SEVERITY_WARNING,
+					"Blocked — output has nowhere to go"
+				))
+
+		if _is_policy_waiting_for_funds(machine):
+			alarms.append(_make_alarm(
+				machine,
+				"maintenance_funds",
+				SEVERITY_WARNING,
+				"Automatic maintenance waiting for funds"
+			))
+
+		if machine.is_breakdown_risk_critical():
+			alarms.append(_make_alarm(
+				machine,
+				"breakdown_risk",
+				SEVERITY_CRITICAL,
+				"Breakdown risk %.1f%% per operating hour" % (
+					machine.get_breakdown_chance_per_hour() * 100.0
+				)
+			))
+		elif machine.is_breakdown_risk_warning():
+			alarms.append(_make_alarm(
+				machine,
+				"breakdown_risk",
+				SEVERITY_WARNING,
+				"Breakdown risk %.1f%% per operating hour" % (
+					machine.get_breakdown_chance_per_hour() * 100.0
+				)
+			))
+
+		if machine.is_maintenance_critical():
+			alarms.append(_make_alarm(
+				machine,
+				"maintenance_due",
+				SEVERITY_CRITICAL,
+				"Critical condition — %.1f%%" % (
+					machine.condition * 100.0
+				)
+			))
+		elif machine.is_maintenance_due():
+			alarms.append(_make_alarm(
+				machine,
+				"maintenance_due",
+				SEVERITY_WARNING,
+				"Maintenance due — %.1f%% condition" % (
+					machine.condition * 100.0
+				)
+			))
+
+	alarms.sort_custom(_sort_alarms)
+	return alarms
+
+
+func _make_alarm(
+	machine: MachineModel,
+	cause: String,
+	severity: int,
+	message: String
+) -> Dictionary:
+	return {
+		"key": "%s:%s" % [machine.instance_id, cause],
+		"machine_id": machine.instance_id,
+		"equipment": machine.display_name,
+		"severity": severity,
+		"message": message
+	}
+
+
+func _sort_alarms(left: Dictionary, right: Dictionary) -> bool:
+	var left_cleared := bool(left.get("cleared", false))
+	var right_cleared := bool(right.get("cleared", false))
+
+	if left_cleared != right_cleared:
+		return not left_cleared
+
+	var left_severity := int(left["severity"])
+	var right_severity := int(right["severity"])
+
+	if left_severity != right_severity:
+		return left_severity < right_severity
+
+	var equipment_comparison := str(left["equipment"]).naturalnocasecmp_to(
+		str(right["equipment"])
+	)
+
+	if equipment_comparison != 0:
+		return equipment_comparison < 0
+
+	return str(left["message"]) < str(right["message"])
+
+
+func _refresh_alarms() -> void:
+	if alarm_list == null or alarm_count_label == null:
+		return
+
+	var alarms := _collect_alarms()
+	_sync_alarm_state(alarms)
+	var acknowledged_count := 0
+
+	for alarm: Dictionary in alarms:
+		var key := str(alarm["key"])
+		if bool(acknowledged_alarms.get(key, false)):
+			acknowledged_count += 1
+
+	var displayed_alarms: Array[Dictionary] = []
+
+	for alarm: Dictionary in alarms:
+		displayed_alarms.append(alarm.duplicate(true))
+
+	for value: Variant in cleared_unacknowledged_alarms.values():
+		displayed_alarms.append((value as Dictionary).duplicate(true))
+
+	displayed_alarms.sort_custom(_sort_alarms)
+	UIWidgets.clear_container(alarm_list)
+	alarm_count_label.text = "%d active • %d cleared • %d acknowledged" % [
+		alarms.size(),
+		cleared_unacknowledged_alarms.size(),
+		acknowledged_count
+	]
+
+	if displayed_alarms.is_empty():
+		alarm_list.add_child(
+			UIWidgets.create_empty_label("No SCADA alarms.")
+		)
+		return
+
+	for alarm: Dictionary in displayed_alarms:
+		var row := ALARM_ROW_SCENE.instantiate() as ScadaAlarmRow
+
+		if row == null:
+			continue
+
+		alarm_list.add_child(row)
+		var key := str(alarm["key"])
+		var severity := int(alarm["severity"])
+		var is_cleared := bool(alarm.get("cleared", false))
+		var duration := (
+			float(alarm.get("duration_seconds", 0.0))
+			if is_cleared
+			else float(alarm_active_seconds.get(key, 0.0))
+		)
+		row.configure(
+			key,
+			str(alarm["machine_id"]),
+			str(alarm["equipment"]),
+			"CLEARED" if is_cleared else _severity_text(severity),
+			(
+				"Returned to normal — %s" % str(alarm["message"])
+				if is_cleared
+				else str(alarm["message"])
+			),
+			duration,
+			(
+				false
+				if is_cleared
+				else bool(acknowledged_alarms.get(key, false))
+			),
+			(
+				ThemeManager.COLOR_TEXT_MUTED
+				if is_cleared
+				else _severity_color(severity)
+			)
+		)
+		row.view_requested.connect(_focus_machine)
+		row.acknowledge_requested.connect(_on_alarm_acknowledged)
+
+
+func _sync_alarm_state(alarms: Array[Dictionary]) -> void:
+	var active_keys: Dictionary = {}
+
+	for alarm: Dictionary in alarms:
+		var key := str(alarm["key"])
+		var severity := int(alarm["severity"])
+		active_keys[key] = true
+
+		if cleared_unacknowledged_alarms.has(key):
+			cleared_unacknowledged_alarms.erase(key)
+			alarm_active_seconds[key] = 0.0
+			acknowledged_alarms.erase(key)
+
+		if (
+			alarm_severity_by_key.has(key)
+			and int(alarm_severity_by_key[key]) != severity
+		):
+			acknowledged_alarms.erase(key)
+
+		alarm_severity_by_key[key] = severity
+		active_alarm_records[key] = alarm.duplicate(true)
+
+		if not alarm_active_seconds.has(key):
+			alarm_active_seconds[key] = 0.0
+
+	for value: Variant in active_alarm_records.keys():
+		var key := str(value)
+
+		if active_keys.has(key):
+			continue
+
+		if not bool(acknowledged_alarms.get(key, false)):
+			var cleared_record := (
+				active_alarm_records[key] as Dictionary
+			).duplicate(true)
+			cleared_record["cleared"] = true
+			cleared_record["duration_seconds"] = float(
+				alarm_active_seconds.get(key, 0.0)
+			)
+			cleared_unacknowledged_alarms[key] = cleared_record
+
+		active_alarm_records.erase(key)
+		alarm_active_seconds.erase(key)
+		alarm_severity_by_key.erase(key)
+		acknowledged_alarms.erase(key)
+
+
+func _severity_text(severity: int) -> String:
+	match severity:
+		SEVERITY_CRITICAL:
+			return "CRITICAL"
+		SEVERITY_WARNING:
+			return "WARNING"
+		_:
+			return "INFO"
+
+
+func _severity_color(severity: int) -> Color:
+	match severity:
+		SEVERITY_CRITICAL:
+			return ThemeManager.COLOR_DANGER
+		SEVERITY_WARNING:
+			return ThemeManager.COLOR_WARNING
+		_:
+			return ThemeManager.COLOR_ACCENT
+
+
+func _is_policy_waiting_for_funds(machine: MachineModel) -> bool:
+	return (
+		factory != null
+		and machine.maintenance_policy_enabled
+		and not machine.is_under_maintenance()
+		and not machine.is_failed()
+		and machine.condition <= machine.maintenance_policy_condition
+		and (
+			factory.cash_balance - machine.maintenance_cost
+			< machine.maintenance_policy_cash_reserve
+		)
+	)
+
+
+func _focus_machine(machine_id: String) -> void:
+	if factory == null:
+		return
+
+	var node := process_graph.get_node_or_null(
+		NodePath(machine_id)
+	) as GraphNode
+	var machine := factory.get_machine(machine_id)
+
+	if node == null or machine == null:
+		return
+
+	for child: Node in process_graph.get_children():
+		var graph_node := child as GraphNode
+
+		if graph_node != null:
+			graph_node.selected = graph_node == node
+
+	process_graph.scroll_offset = (
+		node.position_offset
+		+ node.size * 0.5
+		- process_graph.size * 0.5 / process_graph.zoom
+	)
+	machine_requested.emit(machine)
+
+
+func _on_alarm_acknowledged(alarm_key: String) -> void:
+	if cleared_unacknowledged_alarms.has(alarm_key):
+		cleared_unacknowledged_alarms.erase(alarm_key)
+		_refresh_alarms()
+		return
+
+	acknowledged_alarms[alarm_key] = true
+	_refresh_alarms()
+
+
 func _get_machine_resources(machine: MachineModel) -> Array[String]:
 	var result: Array[String] = []
 
@@ -459,6 +848,7 @@ func _state_color(state: MachineModel.State) -> Color:
 func _on_machine_added(machine: MachineModel) -> void:
 	_add_machine_node(machine)
 	_update_system_status()
+	_refresh_alarms()
 	call_deferred("_fit_plant")
 
 
@@ -471,11 +861,21 @@ func _on_machine_removed(machine_id: String) -> void:
 
 	_rebuild_connections()
 	_update_system_status()
+	_refresh_alarms()
 
 
 func _on_machine_changed(machine: MachineModel) -> void:
 	_update_machine_node(machine)
+
+
+func _on_alarm_machine_changed(machine: MachineModel) -> void:
+	_update_machine_node(machine)
 	_update_system_status()
+	_refresh_alarms()
+
+
+func _on_economy_changed(_value: Variant) -> void:
+	_refresh_alarms()
 
 
 func _on_connection_added(connection: ConnectionModel) -> void:
