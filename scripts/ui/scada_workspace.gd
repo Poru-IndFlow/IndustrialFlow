@@ -16,6 +16,8 @@ const ALARM_VIEW_ACTIVE_HISTORY := 2
 const ALARM_VIEW_CLEARED_HISTORY := 3
 const ALARM_VIEW_ACKNOWLEDGED_HISTORY := 4
 const ALARM_VIEW_CRITICAL_HISTORY := 5
+const SCADA_NODE_FOOTPRINT := Vector2(245, 170)
+const SCADA_LAYOUT_STEP := Vector2(270, 195)
 
 var factory: FactoryModel
 var input_ports: Dictionary = {}
@@ -23,6 +25,7 @@ var output_ports: Dictionary = {}
 var state_labels: Dictionary = {}
 var metrics_labels: Dictionary = {}
 var resource_labels: Dictionary = {}
+var scada_node_positions: Dictionary = {}
 var alarm_active_seconds: Dictionary = {}
 var alarm_severity_by_key: Dictionary = {}
 var active_alarm_records: Dictionary = {}
@@ -215,6 +218,7 @@ func _clear_graph() -> void:
 	state_labels.clear()
 	metrics_labels.clear()
 	resource_labels.clear()
+	scada_node_positions.clear()
 
 	for child: Node in process_graph.get_children():
 		if child is GraphNode:
@@ -229,7 +233,7 @@ func _add_machine_node(machine: MachineModel) -> void:
 	var node := GraphNode.new()
 	node.name = machine.instance_id
 	node.title = machine.display_name
-	node.position_offset = machine.graph_position
+	node.position_offset = _find_scada_node_position(machine)
 	node.custom_minimum_size = Vector2(245, 145)
 	node.draggable = false
 
@@ -293,6 +297,62 @@ func _add_machine_node(machine: MachineModel) -> void:
 	node.node_selected.connect(_on_node_selected.bind(machine))
 	process_graph.add_child(node)
 	_update_machine_node(machine)
+
+
+func _find_scada_node_position(machine: MachineModel) -> Vector2:
+	var base_position := machine.graph_position
+
+	if _is_scada_position_free(base_position):
+		scada_node_positions[machine.instance_id] = base_position
+		return base_position
+
+	for ring in range(1, 33):
+		var offsets: Array[Vector2] = [
+			Vector2(ring, 0),
+			Vector2(0, ring),
+			Vector2(-ring, 0),
+			Vector2(0, -ring),
+			Vector2(ring, ring),
+			Vector2(-ring, ring),
+			Vector2(-ring, -ring),
+			Vector2(ring, -ring)
+		]
+
+		for offset: Vector2 in offsets:
+			var candidate := base_position + Vector2(
+				offset.x * SCADA_LAYOUT_STEP.x,
+				offset.y * SCADA_LAYOUT_STEP.y
+			)
+
+			if _is_scada_position_free(candidate):
+				scada_node_positions[machine.instance_id] = candidate
+				return candidate
+
+	var fallback := base_position + Vector2(
+		0.0,
+		float(scada_node_positions.size()) * SCADA_LAYOUT_STEP.y
+	)
+	scada_node_positions[machine.instance_id] = fallback
+	return fallback
+
+
+func _is_scada_position_free(candidate: Vector2) -> bool:
+	var candidate_rect := Rect2(
+		candidate,
+		SCADA_NODE_FOOTPRINT
+	).grow(10.0)
+
+	for value: Variant in scada_node_positions.values():
+		var occupied_position: Vector2 = value
+		var occupied_rect := Rect2(
+			occupied_position,
+			SCADA_NODE_FOOTPRINT
+		).grow(10.0)
+
+		if candidate_rect.intersects(occupied_rect):
+			return false
+
+	return true
 
 
 func _update_machine_node(machine: MachineModel) -> void:
@@ -406,15 +466,15 @@ func _fit_plant() -> void:
 	var bounds := Rect2()
 	var first := true
 
-	for value: Variant in factory.machines.values():
-		var machine := value as MachineModel
+	for child: Node in process_graph.get_children():
+		var node := child as GraphNode
 
-		if machine == null:
+		if node == null:
 			continue
 
 		var machine_rect := Rect2(
-			machine.graph_position,
-			Vector2(245, 170)
+			node.position_offset,
+			SCADA_NODE_FOOTPRINT
 		)
 		bounds = machine_rect if first else bounds.merge(machine_rect)
 		first = false
@@ -1199,6 +1259,8 @@ func _on_machine_removed(machine_id: String) -> void:
 	if node != null:
 		process_graph.remove_child(node)
 		node.queue_free()
+
+	scada_node_positions.erase(machine_id)
 
 	if selected_machine != null and selected_machine.instance_id == machine_id:
 		selected_machine = null
