@@ -246,7 +246,9 @@ func tick(delta_seconds: float) -> void:
 
 func add_production_target(
 	resource_id: String,
-	target_quantity: float
+	target_quantity: float,
+	priority: int = 1,
+	deadline_seconds: float = 0.0
 ) -> Dictionary:
 	if (
 		ResourceRegistry.get_definition(resource_id).is_empty()
@@ -258,7 +260,10 @@ func add_production_target(
 		"id": _next_production_target_id,
 		"resource_id": resource_id,
 		"target_quantity": target_quantity,
-		"produced_quantity": 0.0
+		"produced_quantity": 0.0,
+		"priority": clampi(priority, 0, 2),
+		"deadline_total_seconds": maxf(deadline_seconds, 0.0),
+		"deadline_remaining_seconds": maxf(deadline_seconds, 0.0)
 	}
 	_next_production_target_id += 1
 	production_targets.append(target)
@@ -310,6 +315,15 @@ func restore_production_targets(entries: Array) -> void:
 				float(entry.get("produced_quantity", 0.0)),
 				0.0,
 				target_quantity
+			),
+			"priority": clampi(int(entry.get("priority", 1)), 0, 2),
+			"deadline_total_seconds": maxf(
+				0.0,
+				float(entry.get("deadline_total_seconds", 0.0))
+			),
+			"deadline_remaining_seconds": maxf(
+				0.0,
+				float(entry.get("deadline_remaining_seconds", 0.0))
 			)
 		})
 		_next_production_target_id = maxi(
@@ -345,6 +359,21 @@ func _advance_production_targets(delta_seconds: float) -> void:
 		)
 
 	for target: Dictionary in production_targets:
+		if (
+			float(target["produced_quantity"])
+			< float(target["target_quantity"])
+			and float(target.get("deadline_total_seconds", 0.0)) > 0.0
+		):
+			target["deadline_remaining_seconds"] = maxf(
+				0.0,
+				float(target.get("deadline_remaining_seconds", 0.0))
+				- delta_seconds
+			)
+
+	var ordered_targets: Array[Dictionary] = production_targets.duplicate()
+	ordered_targets.sort_custom(_sort_production_targets)
+
+	for target: Dictionary in ordered_targets:
 		var target_quantity := float(target["target_quantity"])
 		var produced_quantity := float(target["produced_quantity"])
 
@@ -364,6 +393,16 @@ func _advance_production_targets(delta_seconds: float) -> void:
 			available - allocated,
 			0.0
 		)
+
+
+func _sort_production_targets(left: Dictionary, right: Dictionary) -> bool:
+	var left_priority := int(left.get("priority", 1))
+	var right_priority := int(right.get("priority", 1))
+
+	if left_priority != right_priority:
+		return left_priority < right_priority
+
+	return int(left.get("id", 0)) < int(right.get("id", 0))
 
 
 func _emit_production_targets_changed() -> void:
