@@ -23,6 +23,8 @@ var active_alarm_records: Dictionary = {}
 var cleared_unacknowledged_alarms: Dictionary = {}
 var acknowledged_alarms: Dictionary = {}
 var alarm_refresh_elapsed := 0.0
+var selected_machine: MachineModel
+var updating_operator_controls := false
 
 @onready var build_label := %BuildLabel as Label
 @onready var system_status := %SystemStatus as Label
@@ -30,12 +32,24 @@ var alarm_refresh_elapsed := 0.0
 @onready var process_graph := %ProcessGraph as GraphEdit
 @onready var alarm_count_label := %AlarmCountLabel as Label
 @onready var alarm_list := %AlarmList as VBoxContainer
+@onready var equipment_label := %EquipmentLabel as Label
+@onready var operator_state_label := %OperatorStateLabel as Label
+@onready var enabled_check_box := %EnabledCheckBox as CheckBox
+@onready var rate_command_spin_box := %RateCommandSpinBox as SpinBox
+@onready var maintenance_action_button := %MaintenanceActionButton as Button
+@onready var operator_message := %OperatorMessage as Label
 
 
 func _ready() -> void:
 	build_label.text = BuildInfo.get_display_string()
 	fit_plant_button.pressed.connect(_fit_plant)
+	enabled_check_box.toggled.connect(_on_operator_enabled_toggled)
+	rate_command_spin_box.value_changed.connect(_on_operator_rate_changed)
+	maintenance_action_button.pressed.connect(
+		_on_operator_maintenance_pressed
+	)
 	_update_system_status()
+	_update_operator_controls()
 	_refresh_alarms()
 
 
@@ -48,7 +62,9 @@ func bind_factory(new_factory: FactoryModel) -> void:
 	cleared_unacknowledged_alarms.clear()
 	acknowledged_alarms.clear()
 	alarm_refresh_elapsed = 0.0
+	selected_machine = null
 	_clear_graph()
+	_update_operator_controls()
 
 	if factory == null:
 		_update_system_status()
@@ -784,7 +800,169 @@ func _focus_machine(machine_id: String) -> void:
 		+ node.size * 0.5
 		- process_graph.size * 0.5 / process_graph.zoom
 	)
+	_select_operator_machine(machine)
 	machine_requested.emit(machine)
+
+
+func _select_operator_machine(machine: MachineModel) -> void:
+	selected_machine = machine
+	_update_operator_controls()
+
+
+func _update_operator_controls() -> void:
+	if equipment_label == null:
+		return
+
+	updating_operator_controls = true
+
+	if selected_machine == null:
+		equipment_label.text = "Select equipment"
+		operator_state_label.text = "No selection"
+		operator_state_label.add_theme_color_override(
+			"font_color",
+			ThemeManager.COLOR_TEXT_MUTED
+		)
+		enabled_check_box.button_pressed = false
+		enabled_check_box.disabled = true
+		rate_command_spin_box.value = 0.0
+		rate_command_spin_box.editable = false
+		maintenance_action_button.text = "Maintenance unavailable"
+		maintenance_action_button.disabled = true
+		operator_message.text = "Select equipment to issue runtime commands."
+		operator_message.add_theme_color_override(
+			"font_color",
+			ThemeManager.COLOR_TEXT_MUTED
+		)
+		updating_operator_controls = false
+		return
+
+	var machine := selected_machine
+	var unavailable := machine.is_failed() or machine.is_under_maintenance()
+	var manual_control := (
+		machine.control_mode == MachineModel.ControlMode.MANUAL
+	)
+	equipment_label.text = machine.display_name
+	operator_state_label.text = _state_text(machine.state)
+	operator_state_label.add_theme_color_override(
+		"font_color",
+		_state_color(machine.state)
+	)
+	enabled_check_box.button_pressed = machine.enabled
+	enabled_check_box.disabled = unavailable
+	rate_command_spin_box.value = machine.manual_operating_rate * 100.0
+	rate_command_spin_box.editable = (
+		machine.enabled and manual_control and not unavailable
+	)
+	_update_maintenance_action(machine)
+	_update_operator_message(machine, manual_control)
+	updating_operator_controls = false
+
+
+func _update_maintenance_action(machine: MachineModel) -> void:
+	if not machine.supports_maintenance():
+		maintenance_action_button.text = "No maintenance plan"
+		maintenance_action_button.disabled = true
+		return
+
+	if machine.is_under_maintenance():
+		maintenance_action_button.text = "Maintenance in progress — %.0fs" % (
+			machine.maintenance_remaining_seconds
+		)
+		maintenance_action_button.disabled = true
+		return
+
+	var cost := machine.get_current_maintenance_cost()
+	maintenance_action_button.text = "%s — $%.2f" % [
+		"Begin Emergency Repair" if machine.is_failed() else "Begin Maintenance",
+		cost
+	]
+	maintenance_action_button.disabled = (
+		factory == null
+		or not machine.can_start_maintenance()
+		or factory.cash_balance < cost
+	)
+
+
+func _update_operator_message(
+	machine: MachineModel,
+	manual_control: bool
+) -> void:
+	var message := "Operator controls available"
+	var color := ThemeManager.COLOR_SUCCESS
+
+	if machine.is_failed():
+		message = "Interlock: failed — emergency repair required"
+		color = ThemeManager.COLOR_DANGER
+	elif machine.is_under_maintenance():
+		message = "Interlock: maintenance in progress"
+		color = ThemeManager.COLOR_ACCENT
+	elif not machine.enabled:
+		message = "Interlock: equipment disabled"
+		color = ThemeManager.COLOR_WARNING
+	elif not manual_control:
+		message = "Automatic inventory controller owns the speed command"
+		color = ThemeManager.COLOR_ACCENT
+	elif machine.state == MachineModel.State.BLOCKED_INPUT:
+		message = "Process hold: waiting for input"
+		color = ThemeManager.COLOR_WARNING
+	elif machine.state == MachineModel.State.BLOCKED_OUTPUT:
+		message = "Process hold: output has nowhere to go"
+		color = ThemeManager.COLOR_WARNING
+
+	if (
+		machine.supports_maintenance()
+		and not machine.is_under_maintenance()
+		and machine.can_start_maintenance()
+		and factory != null
+		and factory.cash_balance < machine.get_current_maintenance_cost()
+	):
+		message += " • Maintenance blocked: insufficient funds"
+		color = ThemeManager.COLOR_WARNING
+	elif (
+		machine.supports_maintenance()
+		and not machine.is_under_maintenance()
+		and not machine.can_start_maintenance()
+	):
+		message += " • Service not required at current condition"
+
+	operator_message.text = message
+	operator_message.add_theme_color_override("font_color", color)
+
+
+func _on_operator_enabled_toggled(value: bool) -> void:
+	if updating_operator_controls or selected_machine == null:
+		return
+
+	if selected_machine.is_failed() or selected_machine.is_under_maintenance():
+		_update_operator_controls()
+		return
+
+	selected_machine.set_enabled(value)
+	_update_operator_controls()
+
+
+func _on_operator_rate_changed(value: float) -> void:
+	if updating_operator_controls or selected_machine == null:
+		return
+
+	if (
+		not selected_machine.enabled
+		or selected_machine.is_failed()
+		or selected_machine.is_under_maintenance()
+		or selected_machine.control_mode != MachineModel.ControlMode.MANUAL
+	):
+		_update_operator_controls()
+		return
+
+	selected_machine.set_operating_rate(value / 100.0)
+
+
+func _on_operator_maintenance_pressed() -> void:
+	if factory == null or selected_machine == null:
+		return
+
+	factory.start_machine_maintenance(selected_machine)
+	_update_operator_controls()
 
 
 func _on_alarm_acknowledged(alarm_key: String) -> void:
@@ -859,6 +1037,10 @@ func _on_machine_removed(machine_id: String) -> void:
 		process_graph.remove_child(node)
 		node.queue_free()
 
+	if selected_machine != null and selected_machine.instance_id == machine_id:
+		selected_machine = null
+		_update_operator_controls()
+
 	_rebuild_connections()
 	_update_system_status()
 	_refresh_alarms()
@@ -867,14 +1049,22 @@ func _on_machine_removed(machine_id: String) -> void:
 func _on_machine_changed(machine: MachineModel) -> void:
 	_update_machine_node(machine)
 
+	if machine == selected_machine:
+		_update_operator_controls()
+
 
 func _on_alarm_machine_changed(machine: MachineModel) -> void:
 	_update_machine_node(machine)
+
+	if machine == selected_machine:
+		_update_operator_controls()
+
 	_update_system_status()
 	_refresh_alarms()
 
 
 func _on_economy_changed(_value: Variant) -> void:
+	_update_operator_controls()
 	_refresh_alarms()
 
 
@@ -891,4 +1081,5 @@ func _on_connection_changed(connection: ConnectionModel) -> void:
 
 
 func _on_node_selected(machine: MachineModel) -> void:
+	_select_operator_machine(machine)
 	machine_requested.emit(machine)
