@@ -19,6 +19,8 @@ var machine_economy: Dictionary = {}
 var resource_economy: Dictionary = {}
 var economy_samples: Array[Dictionary] = []
 var researched_ideas: Dictionary = {}
+var production_targets: Array[Dictionary] = []
+var _next_production_target_id := 1
 var _next_instance_numbers: Dictionary = {}
 var _revenue_in_window := 0.0
 var _expenses_in_window := 0.0
@@ -239,6 +241,134 @@ func tick(delta_seconds: float) -> void:
 		machine.advance_production_telemetry(delta_seconds)
 
 	_advance_economy_telemetry(delta_seconds)
+	_advance_production_targets(delta_seconds)
+
+
+func add_production_target(
+	resource_id: String,
+	target_quantity: float
+) -> Dictionary:
+	if (
+		ResourceRegistry.get_definition(resource_id).is_empty()
+		or target_quantity <= 0.0
+	):
+		return {}
+
+	var target := {
+		"id": _next_production_target_id,
+		"resource_id": resource_id,
+		"target_quantity": target_quantity,
+		"produced_quantity": 0.0
+	}
+	_next_production_target_id += 1
+	production_targets.append(target)
+	_emit_production_targets_changed()
+	return target
+
+
+func remove_production_target(target_id: int) -> bool:
+	for index in range(production_targets.size()):
+		if int(production_targets[index].get("id", 0)) == target_id:
+			production_targets.remove_at(index)
+			_emit_production_targets_changed()
+			return true
+
+	return false
+
+
+func serialize_production_targets() -> Array[Dictionary]:
+	return production_targets.duplicate(true)
+
+
+func restore_production_targets(entries: Array) -> void:
+	production_targets.clear()
+	_next_production_target_id = 1
+
+	for value: Variant in entries:
+		if not value is Dictionary:
+			continue
+
+		var entry := value as Dictionary
+		var resource_id := str(entry.get("resource_id", ""))
+		var target_quantity := maxf(
+			0.0,
+			float(entry.get("target_quantity", 0.0))
+		)
+
+		if (
+			ResourceRegistry.get_definition(resource_id).is_empty()
+			or target_quantity <= 0.0
+		):
+			continue
+
+		var target_id := maxi(1, int(entry.get("id", 1)))
+		production_targets.append({
+			"id": target_id,
+			"resource_id": resource_id,
+			"target_quantity": target_quantity,
+			"produced_quantity": clampf(
+				float(entry.get("produced_quantity", 0.0)),
+				0.0,
+				target_quantity
+			)
+		})
+		_next_production_target_id = maxi(
+			_next_production_target_id,
+			target_id + 1
+		)
+
+
+func _advance_production_targets(delta_seconds: float) -> void:
+	if delta_seconds <= 0.0 or production_targets.is_empty():
+		return
+
+	var gross_rates: Dictionary = {}
+
+	for value: Variant in machines.values():
+		var machine := value as MachineModel
+
+		if machine == null:
+			continue
+
+		for key: Variant in machine.production_rates_per_second.keys():
+			var resource_id := str(key)
+			gross_rates[resource_id] = (
+				float(gross_rates.get(resource_id, 0.0))
+				+ float(machine.production_rates_per_second.get(key, 0.0))
+			)
+
+	var available_production: Dictionary = {}
+
+	for key: Variant in gross_rates.keys():
+		available_production[str(key)] = (
+			float(gross_rates[key]) * delta_seconds
+		)
+
+	for target: Dictionary in production_targets:
+		var target_quantity := float(target["target_quantity"])
+		var produced_quantity := float(target["produced_quantity"])
+
+		if produced_quantity >= target_quantity:
+			continue
+
+		var resource_id := str(target["resource_id"])
+		var available := float(
+			available_production.get(resource_id, 0.0)
+		)
+		var allocated := minf(
+			target_quantity - produced_quantity,
+			available
+		)
+		target["produced_quantity"] = produced_quantity + allocated
+		available_production[resource_id] = maxf(
+			available - allocated,
+			0.0
+		)
+
+
+func _emit_production_targets_changed() -> void:
+	if event_bus != null:
+		event_bus.production_targets_changed.emit(self)
 
 
 func serialize_economy() -> Dictionary:

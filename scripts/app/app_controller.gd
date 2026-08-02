@@ -29,6 +29,10 @@ extends Node
 	"../RootVBox/Workspace/EditorSplit/WorkspaceTabs/Research"
 ) as ResearchWorkspace
 
+@onready var production_planning := get_node(
+	"../RootVBox/Workspace/EditorSplit/WorkspaceTabs/Production Planning"
+) as ProductionPlanning
+
 @onready var workspace_tabs := get_node(
 	"../RootVBox/Workspace/EditorSplit/WorkspaceTabs"
 ) as TabContainer
@@ -143,6 +147,7 @@ func set_factory(new_factory: FactoryModel) -> void:
 	controller_trends.bind_factory(factory)
 	economy_trends.bind_factory(factory)
 	research_workspace.bind_factory(factory)
+	production_planning.bind_factory(factory)
 
 	if editor_history != null:
 		editor_history.clear()
@@ -153,6 +158,7 @@ func _on_tick_advanced(delta_seconds: float) -> void:
 		factory.tick(delta_seconds)
 		scada_workspace.advance(delta_seconds)
 		controller_trends.advance(delta_seconds)
+		production_planning.advance(delta_seconds)
 		_update_simulation_toolbar()
 
 
@@ -238,9 +244,13 @@ func _on_selection_changed(selected_count: int) -> void:
 
 
 func _on_workspace_tab_changed(tab_index: int) -> void:
-	machine_palette.visible = tab_index == 0
+	var selected_workspace := workspace_tabs.get_tab_control(tab_index)
+	var is_factory_graph := selected_workspace == factory_graph
+	var is_production_planning := selected_workspace == production_planning
+	machine_palette.visible = is_factory_graph
+	machine_inspector.visible = not is_production_planning
 	editor_toolbar.set_selection_count(
-		factory_graph_selection_count if tab_index == 0 else 0
+		factory_graph_selection_count if is_factory_graph else 0
 	)
 
 
