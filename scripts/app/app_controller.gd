@@ -80,6 +80,9 @@ func _ready() -> void:
 	scada_workspace.machine_requested.connect(
 		_on_scada_machine_requested
 	)
+	production_planning.machine_requested.connect(
+		_on_overview_machine_requested
+	)
 	workspace_tabs.tab_changed.connect(_on_workspace_tab_changed)
 
 	editor_toolbar.undo_requested.connect(editor_history.undo)

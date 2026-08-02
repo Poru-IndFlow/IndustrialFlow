@@ -2,8 +2,11 @@ class_name ProductionPlanning
 extends VBoxContainer
 
 
+signal machine_requested(machine_id: String)
+
 var factory: FactoryModel
 var refresh_elapsed := 0.0
+var editing_target_id := 0
 
 @onready var build_label := %BuildLabel as Label
 @onready var summary_label := %SummaryLabel as Label
@@ -13,6 +16,11 @@ var refresh_elapsed := 0.0
 @onready var priority_option := %PriorityOption as OptionButton
 @onready var deadline_spin_box := %DeadlineSpinBox as SpinBox
 @onready var target_list := %TargetList as VBoxContainer
+@onready var edit_target_dialog := %EditTargetDialog as ConfirmationDialog
+@onready var edit_resource_label := %EditResourceLabel as Label
+@onready var edit_quantity_spin_box := %EditQuantitySpinBox as SpinBox
+@onready var edit_priority_option := %EditPriorityOption as OptionButton
+@onready var edit_deadline_spin_box := %EditDeadlineSpinBox as SpinBox
 
 
 func _ready() -> void:
@@ -20,6 +28,7 @@ func _ready() -> void:
 	_populate_resources()
 	_populate_priorities()
 	add_target_button.pressed.connect(_on_add_target_pressed)
+	edit_target_dialog.confirmed.connect(_on_edit_target_confirmed)
 	_refresh(true)
 
 
@@ -78,11 +87,17 @@ func _populate_resources() -> void:
 
 
 func _populate_priorities() -> void:
-	priority_option.clear()
-	priority_option.add_item("High", 0)
-	priority_option.add_item("Normal", 1)
-	priority_option.add_item("Low", 2)
+	_populate_priority_option(priority_option)
+	_populate_priority_option(edit_priority_option)
 	priority_option.select(1)
+	edit_priority_option.select(1)
+
+
+func _populate_priority_option(option: OptionButton) -> void:
+	option.clear()
+	option.add_item("High", 0)
+	option.add_item("Normal", 1)
+	option.add_item("Low", 2)
 
 
 func _on_add_target_pressed() -> void:
@@ -143,7 +158,6 @@ func _is_remove_button_hovered() -> bool:
 	var hovered := get_viewport().gui_get_hovered_control()
 	return (
 		hovered is Button
-		and (hovered as Button).text == "Remove"
 		and target_list.is_ancestor_of(hovered)
 	)
 
@@ -155,7 +169,7 @@ func _sort_targets(left: Dictionary, right: Dictionary) -> bool:
 	if left_priority != right_priority:
 		return left_priority < right_priority
 
-	return int(left.get("id", 0)) < int(right.get("id", 0))
+	return factory.production_targets.find(left) < factory.production_targets.find(right)
 
 
 func _add_target_row(target: Dictionary) -> void:
@@ -184,6 +198,10 @@ func _add_target_row(target: Dictionary) -> void:
 	var heading := HBoxContainer.new()
 	var title := Label.new()
 	var remove_button := Button.new()
+	var earlier_button := Button.new()
+	var later_button := Button.new()
+	var edit_button := Button.new()
+	var bottleneck_button := Button.new()
 	var progress := ProgressBar.new()
 	var details := Label.new()
 	var diagnosis := Label.new()
@@ -204,6 +222,33 @@ func _add_target_row(target: Dictionary) -> void:
 		unit
 	]
 	heading.add_child(title)
+	earlier_button.text = "Earlier"
+	earlier_button.tooltip_text = "Move earlier within this priority"
+	earlier_button.pressed.connect(
+		_on_move_target_pressed.bind(int(target["id"]), -1)
+	)
+	heading.add_child(earlier_button)
+	later_button.text = "Later"
+	later_button.tooltip_text = "Move later within this priority"
+	later_button.pressed.connect(
+		_on_move_target_pressed.bind(int(target["id"]), 1)
+	)
+	heading.add_child(later_button)
+	edit_button.text = "Edit"
+	edit_button.pressed.connect(
+		_on_edit_target_pressed.bind(int(target["id"]))
+	)
+	heading.add_child(edit_button)
+	var bottleneck_machine := _get_bottleneck_machine(resource_id)
+	bottleneck_button.text = "View Bottleneck"
+	bottleneck_button.disabled = bottleneck_machine == null
+
+	if bottleneck_machine != null:
+		bottleneck_button.pressed.connect(
+			_on_view_bottleneck_pressed.bind(bottleneck_machine.instance_id)
+		)
+
+	heading.add_child(bottleneck_button)
 	remove_button.text = "Remove"
 	remove_button.pressed.connect(
 		_on_remove_target_pressed.bind(int(target["id"]))
@@ -293,6 +338,48 @@ func _on_remove_target_pressed(target_id: int) -> void:
 		factory.remove_production_target(target_id)
 
 
+func _on_move_target_pressed(target_id: int, direction: int) -> void:
+	if factory != null:
+		factory.move_production_target(target_id, direction)
+
+
+func _on_edit_target_pressed(target_id: int) -> void:
+	if factory == null:
+		return
+
+	var target := factory.get_production_target(target_id)
+
+	if target.is_empty():
+		return
+
+	editing_target_id = target_id
+	var resource_id := str(target["resource_id"])
+	edit_resource_label.text = ResourceRegistry.get_display_name(resource_id)
+	edit_quantity_spin_box.value = float(target["target_quantity"])
+	edit_priority_option.select(int(target.get("priority", 1)))
+	edit_deadline_spin_box.value = (
+		float(target.get("deadline_remaining_seconds", 0.0)) / 60.0
+	)
+	edit_target_dialog.popup_centered()
+
+
+func _on_edit_target_confirmed() -> void:
+	if factory == null or editing_target_id <= 0:
+		return
+
+	factory.update_production_target(
+		editing_target_id,
+		edit_quantity_spin_box.value,
+		edit_priority_option.get_item_id(edit_priority_option.selected),
+		edit_deadline_spin_box.value * 60.0
+	)
+	editing_target_id = 0
+
+
+func _on_view_bottleneck_pressed(machine_id: String) -> void:
+	machine_requested.emit(machine_id)
+
+
 func _get_resource_rate(resource_id: String, production: bool) -> float:
 	var total := 0.0
 
@@ -316,6 +403,32 @@ func _get_resource_rate(resource_id: String, production: bool) -> float:
 
 
 func _get_bottleneck_text(resource_id: String, gross_rate: float) -> String:
+	var bottleneck := _get_bottleneck_machine(resource_id)
+
+	if bottleneck == null:
+		return "Bottleneck: no installed machine produces this resource"
+
+	if bottleneck.is_failed():
+		return "Bottleneck: %s has failed" % bottleneck.display_name
+	if bottleneck.is_under_maintenance():
+		return "Bottleneck: %s is under maintenance" % bottleneck.display_name
+	if not bottleneck.enabled:
+		return "Bottleneck: %s is disabled" % bottleneck.display_name
+	if bottleneck.state == MachineModel.State.BLOCKED_INPUT:
+		return "Bottleneck: %s is waiting for input" % bottleneck.display_name
+	if bottleneck.state == MachineModel.State.BLOCKED_OUTPUT:
+		return "Bottleneck: %s has blocked output" % bottleneck.display_name
+
+	if gross_rate <= 0.0:
+		return "Bottleneck: installed producers currently have no measured output"
+
+	return "Limiting producer: %s at %.0f%% actual speed" % [
+		bottleneck.display_name,
+		bottleneck.actual_operating_rate * 100.0
+	]
+
+
+func _get_bottleneck_machine(resource_id: String) -> MachineModel:
 	var producers: Array[MachineModel] = []
 
 	for value: Variant in factory.machines.values():
@@ -325,22 +438,19 @@ func _get_bottleneck_text(resource_id: String, gross_rate: float) -> String:
 			producers.append(machine)
 
 	if producers.is_empty():
-		return "Bottleneck: no installed machine produces this resource"
+		return null
 
 	for machine: MachineModel in producers:
-		if machine.is_failed():
-			return "Bottleneck: %s has failed" % machine.display_name
-		if machine.is_under_maintenance():
-			return "Bottleneck: %s is under maintenance" % machine.display_name
-		if not machine.enabled:
-			return "Bottleneck: %s is disabled" % machine.display_name
-		if machine.state == MachineModel.State.BLOCKED_INPUT:
-			return "Bottleneck: %s is waiting for input" % machine.display_name
-		if machine.state == MachineModel.State.BLOCKED_OUTPUT:
-			return "Bottleneck: %s has blocked output" % machine.display_name
-
-	if gross_rate <= 0.0:
-		return "Bottleneck: installed producers currently have no measured output"
+		if (
+			machine.is_failed()
+			or machine.is_under_maintenance()
+			or not machine.enabled
+			or machine.state in [
+				MachineModel.State.BLOCKED_INPUT,
+				MachineModel.State.BLOCKED_OUTPUT
+			]
+		):
+			return machine
 
 	var limiting := producers[0]
 
@@ -348,10 +458,7 @@ func _get_bottleneck_text(resource_id: String, gross_rate: float) -> String:
 		if machine.actual_operating_rate < limiting.actual_operating_rate:
 			limiting = machine
 
-	return "Limiting producer: %s at %.0f%% actual speed" % [
-		limiting.display_name,
-		limiting.actual_operating_rate * 100.0
-	]
+	return limiting
 
 
 func _machine_outputs(machine: MachineModel, resource_id: String) -> bool:

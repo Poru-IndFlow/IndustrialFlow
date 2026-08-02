@@ -281,6 +281,65 @@ func remove_production_target(target_id: int) -> bool:
 	return false
 
 
+func get_production_target(target_id: int) -> Dictionary:
+	for target: Dictionary in production_targets:
+		if int(target.get("id", 0)) == target_id:
+			return target
+
+	return {}
+
+
+func update_production_target(
+	target_id: int,
+	target_quantity: float,
+	priority: int,
+	deadline_seconds: float
+) -> bool:
+	var target := get_production_target(target_id)
+
+	if target.is_empty() or target_quantity <= 0.0:
+		return false
+
+	target["target_quantity"] = target_quantity
+	target["produced_quantity"] = minf(
+		float(target.get("produced_quantity", 0.0)),
+		target_quantity
+	)
+	target["priority"] = clampi(priority, 0, 2)
+	target["deadline_total_seconds"] = maxf(deadline_seconds, 0.0)
+	target["deadline_remaining_seconds"] = maxf(deadline_seconds, 0.0)
+	_emit_production_targets_changed()
+	return true
+
+
+func move_production_target(target_id: int, direction: int) -> bool:
+	var index := -1
+
+	for candidate_index in range(production_targets.size()):
+		if int(production_targets[candidate_index].get("id", 0)) == target_id:
+			index = candidate_index
+			break
+
+	if index < 0 or direction == 0:
+		return false
+
+	var priority := int(production_targets[index].get("priority", 1))
+	var step := -1 if direction < 0 else 1
+	var swap_index := index + step
+
+	while swap_index >= 0 and swap_index < production_targets.size():
+		if int(production_targets[swap_index].get("priority", 1)) == priority:
+			var moved_target := production_targets[index]
+			production_targets[index] = production_targets[swap_index]
+			production_targets[swap_index] = moved_target
+			_emit_production_targets_changed()
+			return true
+
+		swap_index += step
+
+	return false
+
+
 func serialize_production_targets() -> Array[Dictionary]:
 	return production_targets.duplicate(true)
 
@@ -402,7 +461,7 @@ func _sort_production_targets(left: Dictionary, right: Dictionary) -> bool:
 	if left_priority != right_priority:
 		return left_priority < right_priority
 
-	return int(left.get("id", 0)) < int(right.get("id", 0))
+	return production_targets.find(left) < production_targets.find(right)
 
 
 func _emit_production_targets_changed() -> void:
