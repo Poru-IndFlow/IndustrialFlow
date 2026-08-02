@@ -55,6 +55,54 @@ size_flags_horizontal = 3
 text = "No orders"
 horizontal_alignment = 2
 
+[node name="MetricsPanel" type="PanelContainer" parent="."]
+layout_mode = 2
+
+[node name="Metrics" type="GridContainer" parent="MetricsPanel"]
+layout_mode = 2
+columns = 4
+theme_override_constants/h_separation = 18
+theme_override_constants/v_separation = 4
+
+[node name="RevenueTitle" type="Label" parent="MetricsPanel/Metrics"]
+layout_mode = 2
+text = "Completed revenue"
+
+[node name="PenaltyTitle" type="Label" parent="MetricsPanel/Metrics"]
+layout_mode = 2
+text = "Late penalties"
+
+[node name="CompletionTitle" type="Label" parent="MetricsPanel/Metrics"]
+layout_mode = 2
+text = "Completion rate"
+
+[node name="ActiveValueTitle" type="Label" parent="MetricsPanel/Metrics"]
+layout_mode = 2
+text = "Active contract value"
+
+[node name="ContractRevenueLabel" type="Label" parent="MetricsPanel/Metrics"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.286275, 0.815686, 0.533333, 1)
+text = "$0.00"
+
+[node name="ContractPenaltiesLabel" type="Label" parent="MetricsPanel/Metrics"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.937255, 0.368627, 0.368627, 1)
+text = "$0.00"
+
+[node name="CompletionRateLabel" type="Label" parent="MetricsPanel/Metrics"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "—"
+
+[node name="ActiveValueLabel" type="Label" parent="MetricsPanel/Metrics"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.333333, 0.65098, 1, 1)
+text = "$0.00"
+
 [node name="OrderScroll" type="ScrollContainer" parent="."]
 layout_mode = 2
 size_flags_vertical = 3

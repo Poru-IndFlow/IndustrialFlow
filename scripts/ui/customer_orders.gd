@@ -15,6 +15,10 @@ var refresh_elapsed := 0.0
 @onready var order_filter := %OrderFilter as OptionButton
 @onready var summary_label := %SummaryLabel as Label
 @onready var order_list := %OrderList as VBoxContainer
+@onready var contract_revenue_label := %ContractRevenueLabel as Label
+@onready var contract_penalties_label := %ContractPenaltiesLabel as Label
+@onready var completion_rate_label := %CompletionRateLabel as Label
+@onready var active_value_label := %ActiveValueLabel as Label
 
 
 func _ready() -> void:
@@ -99,14 +103,26 @@ func _refresh() -> void:
 	var displayed: Array[Dictionary] = []
 	var active_count := 0
 	var offer_count := 0
+	var completed_count := 0
+	var failed_count := 0
+	var completed_revenue := 0.0
+	var penalties := 0.0
+	var active_value := 0.0
 
 	for order: Dictionary in factory.customer_orders:
 		var status := str(order.get("status", ""))
 
 		if status == FactoryModel.ORDER_STATUS_ACTIVE:
 			active_count += 1
+			active_value += float(order.get("reward", 0.0))
 		elif status == FactoryModel.ORDER_STATUS_OFFERED:
 			offer_count += 1
+		elif status == FactoryModel.ORDER_STATUS_COMPLETED:
+			completed_count += 1
+			completed_revenue += float(order.get("reward", 0.0))
+		elif status == FactoryModel.ORDER_STATUS_FAILED:
+			failed_count += 1
+			penalties += float(order.get("late_penalty", 0.0))
 
 		if _include_order(status):
 			displayed.append(order)
@@ -116,6 +132,15 @@ func _refresh() -> void:
 		active_count,
 		factory.customer_orders.size()
 	]
+	contract_revenue_label.text = _format_currency(completed_revenue)
+	contract_penalties_label.text = _format_currency(penalties)
+	active_value_label.text = _format_currency(active_value)
+	var decided_count := completed_count + failed_count
+	completion_rate_label.text = (
+		"%.0f%%" % (float(completed_count) / float(decided_count) * 100.0)
+		if decided_count > 0
+		else "—"
+	)
 
 	if displayed.is_empty():
 		order_list.add_child(
@@ -159,6 +184,7 @@ func _add_order_card(order: Dictionary) -> void:
 	var title := Label.new()
 	var badge := Label.new()
 	var details := Label.new()
+	var evaluation := Label.new()
 	var actions := HBoxContainer.new()
 
 	order_list.add_child(panel)
@@ -188,6 +214,15 @@ func _add_order_card(order: Dictionary) -> void:
 	]
 	details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	content.add_child(details)
+	var assessment := _assess_order(order, inventory)
+	evaluation.text = str(assessment["text"])
+	var assessment_color: Color = assessment["color"]
+	evaluation.add_theme_color_override(
+		"font_color",
+		assessment_color
+	)
+	evaluation.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	content.add_child(evaluation)
 	content.add_child(actions)
 
 	if status == FactoryModel.ORDER_STATUS_OFFERED:
@@ -254,6 +289,88 @@ func _status_color(status: String) -> Color:
 			return ThemeManager.COLOR_WARNING
 		_:
 			return ThemeManager.COLOR_TEXT_MUTED
+
+
+func _assess_order(order: Dictionary, inventory: float) -> Dictionary:
+	var status := str(order.get("status", ""))
+	var resource_id := str(order["resource_id"])
+	var quantity := float(order["quantity"])
+	var remaining_quantity := maxf(quantity - inventory, 0.0)
+	var deadline := float(order.get("deadline_remaining_seconds", 0.0))
+	var current_rate := _get_resource_production_rate(resource_id)
+	var required_rate := (
+		remaining_quantity / deadline
+		if deadline > 0.0
+		else 0.0
+	)
+	var reward_per_unit := float(order["reward"]) / maxf(quantity, 1.0)
+	var projection := _format_projection(remaining_quantity, current_rate)
+	var prefix := "OFFER REVIEW" if status == FactoryModel.ORDER_STATUS_OFFERED else "DELIVERY OUTLOOK"
+	var assessment := "AT RISK"
+	var color := ThemeManager.COLOR_WARNING
+
+	if status in [
+		FactoryModel.ORDER_STATUS_COMPLETED,
+		FactoryModel.ORDER_STATUS_FAILED,
+		FactoryModel.ORDER_STATUS_DECLINED
+	]:
+		return {
+			"text": "Final result: %s • Reward per unit %s" % [
+				status.capitalize(),
+				_format_currency(reward_per_unit)
+			],
+			"color": _status_color(status)
+		}
+
+	if remaining_quantity <= 0.0:
+		assessment = "READY"
+		color = ThemeManager.COLOR_SUCCESS
+	elif deadline <= 0.0:
+		assessment = "OVERDUE"
+		color = ThemeManager.COLOR_DANGER
+	elif current_rate + 0.000001 >= required_rate:
+		assessment = "FEASIBLE"
+		color = ThemeManager.COLOR_SUCCESS
+
+	return {
+		"text": "%s: %s • Inventory covers %.1f / %.1f %s • Need %.2f %s/s • Current %.2f %s/s • Projected %s • Reward/unit %s" % [
+			prefix,
+			assessment,
+			minf(inventory, quantity),
+			quantity,
+			ResourceRegistry.get_unit(resource_id),
+			required_rate,
+			ResourceRegistry.get_unit(resource_id),
+			current_rate,
+			ResourceRegistry.get_unit(resource_id),
+			projection,
+			_format_currency(reward_per_unit)
+		],
+		"color": color
+	}
+
+
+func _get_resource_production_rate(resource_id: String) -> float:
+	var total := 0.0
+
+	for value: Variant in factory.machines.values():
+		var machine := value as MachineModel
+
+		if machine != null:
+			total += float(
+				machine.production_rates_per_second.get(resource_id, 0.0)
+			)
+
+	return total
+
+
+func _format_projection(quantity: float, rate: float) -> String:
+	if quantity <= 0.0:
+		return "ready now"
+	if rate <= 0.000001:
+		return "no current output"
+
+	return _format_duration(quantity / rate)
 
 
 func _format_currency(value: float) -> String:
