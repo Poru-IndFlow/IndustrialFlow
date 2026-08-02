@@ -124,10 +124,22 @@ size_flags_horizontal = 3
 theme_override_font_sizes/font_size = 15
 text = "SCADA Alarms"
 
+[node name="AlarmViewLabel" type="Label" parent="AlarmPanel/AlarmContent/AlarmHeader"]
+layout_mode = 2
+text = "View"
+
+[node name="AlarmViewFilter" type="OptionButton" parent="AlarmPanel/AlarmContent/AlarmHeader"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(150, 0)
+layout_mode = 2
+tooltip_text = "Switch between current alarms and the session alarm journal"
+
 [node name="AlarmCountLabel" type="Label" parent="AlarmPanel/AlarmContent/AlarmHeader"]
 unique_name_in_owner = true
+custom_minimum_size = Vector2(220, 0)
 layout_mode = 2
 text = "0 active"
+horizontal_alignment = 2
 
 [node name="AlarmScroll" type="ScrollContainer" parent="AlarmPanel/AlarmContent"]
 layout_mode = 2

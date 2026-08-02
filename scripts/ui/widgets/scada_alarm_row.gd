@@ -44,6 +44,26 @@ func configure(
 	acknowledge_button.disabled = acknowledged
 
 
+func configure_history(
+	new_machine_id: String,
+	equipment_name: String,
+	severity_text: String,
+	message: String,
+	duration_seconds: float,
+	acknowledged: bool,
+	color: Color
+) -> void:
+	alarm_key = ""
+	machine_id = new_machine_id
+	severity_label.text = severity_text
+	severity_label.add_theme_color_override("font_color", color)
+	equipment_label.text = equipment_name
+	message_label.text = message
+	duration_label.text = _format_duration(duration_seconds)
+	acknowledge_button.text = "ACK" if acknowledged else "UNACK"
+	acknowledge_button.disabled = true
+
+
 func _format_duration(seconds: float) -> String:
 	var total_seconds := maxi(0, int(floor(seconds)))
 	var hours := floori(float(total_seconds) / 3600.0)

@@ -10,6 +10,12 @@ const ALARM_ROW_SCENE := preload(
 const SEVERITY_CRITICAL := 0
 const SEVERITY_WARNING := 1
 const SEVERITY_INFORMATION := 2
+const ALARM_VIEW_CURRENT := 0
+const ALARM_VIEW_ALL_HISTORY := 1
+const ALARM_VIEW_ACTIVE_HISTORY := 2
+const ALARM_VIEW_CLEARED_HISTORY := 3
+const ALARM_VIEW_ACKNOWLEDGED_HISTORY := 4
+const ALARM_VIEW_CRITICAL_HISTORY := 5
 
 var factory: FactoryModel
 var input_ports: Dictionary = {}
@@ -22,7 +28,10 @@ var alarm_severity_by_key: Dictionary = {}
 var active_alarm_records: Dictionary = {}
 var cleared_unacknowledged_alarms: Dictionary = {}
 var acknowledged_alarms: Dictionary = {}
+var alarm_history: Array[Dictionary] = []
+var history_record_by_key: Dictionary = {}
 var alarm_refresh_elapsed := 0.0
+var scada_elapsed_seconds := 0.0
 var selected_machine: MachineModel
 var updating_operator_controls := false
 
@@ -32,6 +41,7 @@ var updating_operator_controls := false
 @onready var process_graph := %ProcessGraph as GraphEdit
 @onready var alarm_count_label := %AlarmCountLabel as Label
 @onready var alarm_list := %AlarmList as VBoxContainer
+@onready var alarm_view_filter := %AlarmViewFilter as OptionButton
 @onready var equipment_label := %EquipmentLabel as Label
 @onready var operator_state_label := %OperatorStateLabel as Label
 @onready var enabled_check_box := %EnabledCheckBox as CheckBox
@@ -48,6 +58,7 @@ func _ready() -> void:
 	maintenance_action_button.pressed.connect(
 		_on_operator_maintenance_pressed
 	)
+	_setup_alarm_view_filter()
 	_update_system_status()
 	_update_operator_controls()
 	_refresh_alarms()
@@ -61,7 +72,10 @@ func bind_factory(new_factory: FactoryModel) -> void:
 	active_alarm_records.clear()
 	cleared_unacknowledged_alarms.clear()
 	acknowledged_alarms.clear()
+	alarm_history.clear()
+	history_record_by_key.clear()
 	alarm_refresh_elapsed = 0.0
+	scada_elapsed_seconds = 0.0
 	selected_machine = null
 	_clear_graph()
 	_update_operator_controls()
@@ -86,6 +100,7 @@ func advance(delta_seconds: float) -> void:
 	if delta_seconds <= 0.0:
 		return
 
+	scada_elapsed_seconds += delta_seconds
 	var alarms := _collect_alarms()
 	_sync_alarm_state(alarms)
 
@@ -626,6 +641,11 @@ func _refresh_alarms() -> void:
 
 	var alarms := _collect_alarms()
 	_sync_alarm_state(alarms)
+
+	if alarm_view_filter != null and alarm_view_filter.selected != ALARM_VIEW_CURRENT:
+		_refresh_alarm_history(alarms)
+		return
+
 	var acknowledged_count := 0
 
 	for alarm: Dictionary in alarms:
@@ -696,6 +716,124 @@ func _refresh_alarms() -> void:
 		row.acknowledge_requested.connect(_on_alarm_acknowledged)
 
 
+func _setup_alarm_view_filter() -> void:
+	if alarm_view_filter == null:
+		return
+
+	alarm_view_filter.clear()
+	alarm_view_filter.add_item("Current", ALARM_VIEW_CURRENT)
+	alarm_view_filter.add_item("All history", ALARM_VIEW_ALL_HISTORY)
+	alarm_view_filter.add_item("Active history", ALARM_VIEW_ACTIVE_HISTORY)
+	alarm_view_filter.add_item("Cleared history", ALARM_VIEW_CLEARED_HISTORY)
+	alarm_view_filter.add_item(
+		"Acknowledged history",
+		ALARM_VIEW_ACKNOWLEDGED_HISTORY
+	)
+	alarm_view_filter.add_item("Critical history", ALARM_VIEW_CRITICAL_HISTORY)
+	alarm_view_filter.select(ALARM_VIEW_CURRENT)
+	alarm_view_filter.item_selected.connect(_on_alarm_view_selected)
+
+
+func _refresh_alarm_history(current_alarms: Array[Dictionary]) -> void:
+	var active_keys: Dictionary = {}
+
+	for alarm: Dictionary in current_alarms:
+		active_keys[str(alarm["key"])] = true
+
+	var filtered_records: Array[Dictionary] = []
+	var selected_view := alarm_view_filter.selected
+
+	for index in range(alarm_history.size() - 1, -1, -1):
+		var record := alarm_history[index]
+		var is_active := active_keys.has(str(record["key"])) and not record.has(
+			"cleared_at"
+		)
+		var include := false
+
+		match selected_view:
+			ALARM_VIEW_ALL_HISTORY:
+				include = true
+			ALARM_VIEW_ACTIVE_HISTORY:
+				include = is_active
+			ALARM_VIEW_CLEARED_HISTORY:
+				include = record.has("cleared_at")
+			ALARM_VIEW_ACKNOWLEDGED_HISTORY:
+				include = record.has("acknowledged_at")
+			ALARM_VIEW_CRITICAL_HISTORY:
+				include = int(record["severity"]) == SEVERITY_CRITICAL
+
+		if include:
+			filtered_records.append(record)
+
+	UIWidgets.clear_container(alarm_list)
+	alarm_count_label.text = "%d shown • %d session records" % [
+		filtered_records.size(),
+		alarm_history.size()
+	]
+
+	if filtered_records.is_empty():
+		alarm_list.add_child(
+			UIWidgets.create_empty_label("No matching alarm history.")
+		)
+		return
+
+	for record: Dictionary in filtered_records:
+		var row := ALARM_ROW_SCENE.instantiate() as ScadaAlarmRow
+
+		if row == null:
+			continue
+
+		alarm_list.add_child(row)
+		var is_cleared := record.has("cleared_at")
+		var duration := (
+			float(record["duration_seconds"])
+			if is_cleared
+			else maxf(
+				scada_elapsed_seconds - float(record["raised_at"]),
+				0.0
+			)
+		)
+		var timeline := "Raised %s" % _format_journal_time(
+			float(record["raised_at"])
+		)
+
+		if record.has("acknowledged_at"):
+			timeline += " • Acknowledged %s" % _format_journal_time(
+				float(record["acknowledged_at"])
+			)
+
+		if is_cleared:
+			timeline += " • Cleared %s" % _format_journal_time(
+				float(record["cleared_at"])
+			)
+
+		var severity := int(record["severity"])
+		row.configure_history(
+			str(record["machine_id"]),
+			str(record["equipment"]),
+			"CLEARED" if is_cleared else _severity_text(severity),
+			"%s • %s" % [str(record["message"]), timeline],
+			duration,
+			record.has("acknowledged_at"),
+			ThemeManager.COLOR_TEXT_MUTED if is_cleared else _severity_color(
+				severity
+			)
+		)
+		row.view_requested.connect(_focus_machine)
+
+
+func _format_journal_time(seconds: float) -> String:
+	var total_seconds := maxi(0, int(floor(seconds)))
+	var hours := floori(float(total_seconds) / 3600.0)
+	var minutes := floori(float(total_seconds % 3600) / 60.0)
+	var remaining_seconds := total_seconds % 60
+	return "T+%02d:%02d:%02d" % [hours, minutes, remaining_seconds]
+
+
+func _on_alarm_view_selected(_index: int) -> void:
+	_refresh_alarms()
+
+
 func _sync_alarm_state(alarms: Array[Dictionary]) -> void:
 	var active_keys: Dictionary = {}
 
@@ -703,6 +841,7 @@ func _sync_alarm_state(alarms: Array[Dictionary]) -> void:
 		var key := str(alarm["key"])
 		var severity := int(alarm["severity"])
 		active_keys[key] = true
+		var is_new_occurrence := not active_alarm_records.has(key)
 
 		if cleared_unacknowledged_alarms.has(key):
 			cleared_unacknowledged_alarms.erase(key)
@@ -717,6 +856,16 @@ func _sync_alarm_state(alarms: Array[Dictionary]) -> void:
 
 		alarm_severity_by_key[key] = severity
 		active_alarm_records[key] = alarm.duplicate(true)
+
+		if is_new_occurrence:
+			var history_on_raise := alarm.duplicate(true)
+			history_on_raise["raised_at"] = scada_elapsed_seconds
+			alarm_history.append(history_on_raise)
+			history_record_by_key[key] = history_on_raise
+		elif history_record_by_key.has(key):
+			var current_history := history_record_by_key[key] as Dictionary
+			current_history["severity"] = severity
+			current_history["message"] = str(alarm["message"])
 
 		if not alarm_active_seconds.has(key):
 			alarm_active_seconds[key] = 0.0
@@ -736,6 +885,14 @@ func _sync_alarm_state(alarms: Array[Dictionary]) -> void:
 				alarm_active_seconds.get(key, 0.0)
 			)
 			cleared_unacknowledged_alarms[key] = cleared_record
+
+		if history_record_by_key.has(key):
+			var history_on_clear := history_record_by_key[key] as Dictionary
+			history_on_clear["cleared_at"] = scada_elapsed_seconds
+			history_on_clear["duration_seconds"] = maxf(
+				scada_elapsed_seconds - float(history_on_clear["raised_at"]),
+				0.0
+			)
 
 		active_alarm_records.erase(key)
 		alarm_active_seconds.erase(key)
@@ -966,6 +1123,12 @@ func _on_operator_maintenance_pressed() -> void:
 
 
 func _on_alarm_acknowledged(alarm_key: String) -> void:
+	if history_record_by_key.has(alarm_key):
+		var history_record := history_record_by_key[alarm_key] as Dictionary
+
+		if not history_record.has("acknowledged_at"):
+			history_record["acknowledged_at"] = scada_elapsed_seconds
+
 	if cleared_unacknowledged_alarms.has(alarm_key):
 		cleared_unacknowledged_alarms.erase(alarm_key)
 		_refresh_alarms()
