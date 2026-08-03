@@ -5,6 +5,18 @@ const DEFAULT_STARTING_CASH := 10000.0
 const ECONOMY_WINDOW_SECONDS := 1.0
 const DEFAULT_SALVAGE_RATIO := 0.5
 const MAX_ECONOMY_SAMPLES := 120
+const ORDER_STATUS_OFFERED := "offered"
+const ORDER_STATUS_ACTIVE := "active"
+const ORDER_STATUS_COMPLETED := "completed"
+const ORDER_STATUS_FAILED := "failed"
+const ORDER_STATUS_DECLINED := "declined"
+const ORDER_UNIT_PRICES := {
+	"gas": 0.4,
+	"logs": 1.5,
+	"steam": 1.0,
+	"water": 0.2,
+	"wood_chips": 0.05
+}
 
 var machines: Dictionary = {}
 var connections: Array[ConnectionModel] = []
@@ -19,6 +31,10 @@ var machine_economy: Dictionary = {}
 var resource_economy: Dictionary = {}
 var economy_samples: Array[Dictionary] = []
 var researched_ideas: Dictionary = {}
+var production_targets: Array[Dictionary] = []
+var _next_production_target_id := 1
+var customer_orders: Array[Dictionary] = []
+var _next_customer_order_id := 1
 var _next_instance_numbers: Dictionary = {}
 var _revenue_in_window := 0.0
 var _expenses_in_window := 0.0
@@ -239,6 +255,448 @@ func tick(delta_seconds: float) -> void:
 		machine.advance_production_telemetry(delta_seconds)
 
 	_advance_economy_telemetry(delta_seconds)
+	_advance_production_targets(delta_seconds)
+	_advance_customer_orders(delta_seconds)
+
+
+func generate_customer_order() -> Dictionary:
+	var definitions := ResourceRegistry.get_all_definitions()
+
+	if definitions.is_empty():
+		return {}
+
+	var definition: Dictionary = definitions.pick_random()
+	var resource_id := str(definition.get("id", ""))
+	var quantity := _generate_order_quantity(resource_id)
+	var deadline_seconds := float(randi_range(3, 12) * 60)
+	var base_price := float(ORDER_UNIT_PRICES.get(resource_id, 1.0))
+	var reward := quantity * base_price * randf_range(1.15, 1.5)
+	var penalty := reward * 0.25
+	var order := {
+		"id": _next_customer_order_id,
+		"resource_id": resource_id,
+		"quantity": quantity,
+		"reward": reward,
+		"late_penalty": penalty,
+		"deadline_total_seconds": deadline_seconds,
+		"deadline_remaining_seconds": deadline_seconds,
+		"status": ORDER_STATUS_OFFERED,
+		"linked_target_id": 0
+	}
+	_next_customer_order_id += 1
+	customer_orders.append(order)
+	_emit_customer_orders_changed()
+	return order
+
+
+func _generate_order_quantity(resource_id: String) -> float:
+	match resource_id:
+		"wood_chips":
+			return float(randi_range(5, 20) * 100)
+		"logs":
+			return float(randi_range(1, 5) * 10)
+		"water":
+			return float(randi_range(5, 20))
+		"steam":
+			return float(randi_range(3, 10))
+		"gas":
+			return float(randi_range(2, 8))
+		_:
+			return float(randi_range(5, 20))
+
+
+func get_customer_order(order_id: int) -> Dictionary:
+	for order: Dictionary in customer_orders:
+		if int(order.get("id", 0)) == order_id:
+			return order
+
+	return {}
+
+
+func accept_customer_order(order_id: int) -> bool:
+	var order := get_customer_order(order_id)
+
+	if order.is_empty() or str(order.get("status", "")) != ORDER_STATUS_OFFERED:
+		return false
+
+	order["status"] = ORDER_STATUS_ACTIVE
+	var target := add_production_target(
+		str(order["resource_id"]),
+		float(order["quantity"]),
+		0,
+		float(order["deadline_remaining_seconds"])
+	)
+	order["linked_target_id"] = int(target.get("id", 0))
+	_emit_customer_orders_changed()
+	return true
+
+
+func decline_customer_order(order_id: int) -> bool:
+	var order := get_customer_order(order_id)
+
+	if order.is_empty() or str(order.get("status", "")) != ORDER_STATUS_OFFERED:
+		return false
+
+	order["status"] = ORDER_STATUS_DECLINED
+	_emit_customer_orders_changed()
+	return true
+
+
+func get_plant_inventory_amount(resource_id: String) -> float:
+	var total := 0.0
+
+	for value: Variant in machines.values():
+		var machine := value as MachineModel
+
+		if machine != null:
+			total += machine.inventory.get_amount(resource_id)
+
+	return total
+
+
+func can_deliver_customer_order(order_id: int) -> bool:
+	var order := get_customer_order(order_id)
+	return (
+		not order.is_empty()
+		and str(order.get("status", "")) == ORDER_STATUS_ACTIVE
+		and get_plant_inventory_amount(str(order["resource_id"]))
+		>= float(order["quantity"])
+	)
+
+
+func deliver_customer_order(order_id: int) -> bool:
+	if not can_deliver_customer_order(order_id):
+		return false
+
+	var order := get_customer_order(order_id)
+	var resource_id := str(order["resource_id"])
+	var remaining := float(order["quantity"])
+
+	for value: Variant in machines.values():
+		var machine := value as MachineModel
+
+		if machine == null or remaining <= 0.0:
+			continue
+
+		var removed := machine.inventory.remove(resource_id, remaining)
+
+		if removed > 0.0:
+			remaining -= removed
+			machine.notify_inventory_changed()
+
+	var reward := float(order["reward"])
+	order["status"] = ORDER_STATUS_COMPLETED
+	_record_revenue(reward)
+	_record_resource_economy(resource_id, reward, 0.0)
+	_remove_linked_order_target(order)
+	_emit_economy_changed()
+	_emit_customer_orders_changed()
+	return true
+
+
+func serialize_customer_orders() -> Array[Dictionary]:
+	return customer_orders.duplicate(true)
+
+
+func restore_customer_orders(entries: Array) -> void:
+	customer_orders.clear()
+	_next_customer_order_id = 1
+
+	for value: Variant in entries:
+		if not value is Dictionary:
+			continue
+
+		var entry := (value as Dictionary).duplicate(true)
+		var resource_id := str(entry.get("resource_id", ""))
+
+		if ResourceRegistry.get_definition(resource_id).is_empty():
+			continue
+
+		var order_id := maxi(1, int(entry.get("id", 1)))
+		entry["id"] = order_id
+		entry["quantity"] = maxf(1.0, float(entry.get("quantity", 1.0)))
+		entry["reward"] = maxf(0.0, float(entry.get("reward", 0.0)))
+		entry["late_penalty"] = maxf(
+			0.0,
+			float(entry.get("late_penalty", 0.0))
+		)
+		entry["deadline_total_seconds"] = maxf(
+			0.0,
+			float(entry.get("deadline_total_seconds", 0.0))
+		)
+		entry["deadline_remaining_seconds"] = maxf(
+			0.0,
+			float(entry.get("deadline_remaining_seconds", 0.0))
+		)
+		entry["linked_target_id"] = maxi(
+			0,
+			int(entry.get("linked_target_id", 0))
+		)
+		customer_orders.append(entry)
+		_next_customer_order_id = maxi(_next_customer_order_id, order_id + 1)
+
+
+func _advance_customer_orders(delta_seconds: float) -> void:
+	if delta_seconds <= 0.0:
+		return
+
+	for order: Dictionary in customer_orders:
+		if str(order.get("status", "")) != ORDER_STATUS_ACTIVE:
+			continue
+
+		order["deadline_remaining_seconds"] = maxf(
+			0.0,
+			float(order.get("deadline_remaining_seconds", 0.0)) - delta_seconds
+		)
+
+		if float(order["deadline_remaining_seconds"]) > 0.0:
+			continue
+
+		order["status"] = ORDER_STATUS_FAILED
+		var penalty := float(order.get("late_penalty", 0.0))
+		_record_expense(penalty)
+		_remove_linked_order_target(order)
+		_emit_economy_changed()
+		_emit_customer_orders_changed()
+
+
+func _remove_linked_order_target(order: Dictionary) -> void:
+	var target_id := int(order.get("linked_target_id", 0))
+
+	if target_id > 0:
+		remove_production_target(target_id)
+
+	order["linked_target_id"] = 0
+
+
+func _emit_customer_orders_changed() -> void:
+	if event_bus != null:
+		event_bus.customer_orders_changed.emit(self)
+
+
+func add_production_target(
+	resource_id: String,
+	target_quantity: float,
+	priority: int = 1,
+	deadline_seconds: float = 0.0
+) -> Dictionary:
+	if (
+		ResourceRegistry.get_definition(resource_id).is_empty()
+		or target_quantity <= 0.0
+	):
+		return {}
+
+	var target := {
+		"id": _next_production_target_id,
+		"resource_id": resource_id,
+		"target_quantity": target_quantity,
+		"produced_quantity": 0.0,
+		"priority": clampi(priority, 0, 2),
+		"deadline_total_seconds": maxf(deadline_seconds, 0.0),
+		"deadline_remaining_seconds": maxf(deadline_seconds, 0.0)
+	}
+	_next_production_target_id += 1
+	production_targets.append(target)
+	_emit_production_targets_changed()
+	return target
+
+
+func remove_production_target(target_id: int) -> bool:
+	for index in range(production_targets.size()):
+		if int(production_targets[index].get("id", 0)) == target_id:
+			production_targets.remove_at(index)
+			_emit_production_targets_changed()
+			return true
+
+	return false
+
+
+func get_production_target(target_id: int) -> Dictionary:
+	for target: Dictionary in production_targets:
+		if int(target.get("id", 0)) == target_id:
+			return target
+
+	return {}
+
+
+func update_production_target(
+	target_id: int,
+	target_quantity: float,
+	priority: int,
+	deadline_seconds: float
+) -> bool:
+	var target := get_production_target(target_id)
+
+	if target.is_empty() or target_quantity <= 0.0:
+		return false
+
+	target["target_quantity"] = target_quantity
+	target["produced_quantity"] = minf(
+		float(target.get("produced_quantity", 0.0)),
+		target_quantity
+	)
+	target["priority"] = clampi(priority, 0, 2)
+	target["deadline_total_seconds"] = maxf(deadline_seconds, 0.0)
+	target["deadline_remaining_seconds"] = maxf(deadline_seconds, 0.0)
+	_emit_production_targets_changed()
+	return true
+
+
+func move_production_target(target_id: int, direction: int) -> bool:
+	var index := -1
+
+	for candidate_index in range(production_targets.size()):
+		if int(production_targets[candidate_index].get("id", 0)) == target_id:
+			index = candidate_index
+			break
+
+	if index < 0 or direction == 0:
+		return false
+
+	var priority := int(production_targets[index].get("priority", 1))
+	var step := -1 if direction < 0 else 1
+	var swap_index := index + step
+
+	while swap_index >= 0 and swap_index < production_targets.size():
+		if int(production_targets[swap_index].get("priority", 1)) == priority:
+			var moved_target := production_targets[index]
+			production_targets[index] = production_targets[swap_index]
+			production_targets[swap_index] = moved_target
+			_emit_production_targets_changed()
+			return true
+
+		swap_index += step
+
+	return false
+
+
+func serialize_production_targets() -> Array[Dictionary]:
+	return production_targets.duplicate(true)
+
+
+func restore_production_targets(entries: Array) -> void:
+	production_targets.clear()
+	_next_production_target_id = 1
+
+	for value: Variant in entries:
+		if not value is Dictionary:
+			continue
+
+		var entry := value as Dictionary
+		var resource_id := str(entry.get("resource_id", ""))
+		var target_quantity := maxf(
+			0.0,
+			float(entry.get("target_quantity", 0.0))
+		)
+
+		if (
+			ResourceRegistry.get_definition(resource_id).is_empty()
+			or target_quantity <= 0.0
+		):
+			continue
+
+		var target_id := maxi(1, int(entry.get("id", 1)))
+		production_targets.append({
+			"id": target_id,
+			"resource_id": resource_id,
+			"target_quantity": target_quantity,
+			"produced_quantity": clampf(
+				float(entry.get("produced_quantity", 0.0)),
+				0.0,
+				target_quantity
+			),
+			"priority": clampi(int(entry.get("priority", 1)), 0, 2),
+			"deadline_total_seconds": maxf(
+				0.0,
+				float(entry.get("deadline_total_seconds", 0.0))
+			),
+			"deadline_remaining_seconds": maxf(
+				0.0,
+				float(entry.get("deadline_remaining_seconds", 0.0))
+			)
+		})
+		_next_production_target_id = maxi(
+			_next_production_target_id,
+			target_id + 1
+		)
+
+
+func _advance_production_targets(delta_seconds: float) -> void:
+	if delta_seconds <= 0.0 or production_targets.is_empty():
+		return
+
+	var gross_rates: Dictionary = {}
+
+	for value: Variant in machines.values():
+		var machine := value as MachineModel
+
+		if machine == null:
+			continue
+
+		for key: Variant in machine.production_rates_per_second.keys():
+			var resource_id := str(key)
+			gross_rates[resource_id] = (
+				float(gross_rates.get(resource_id, 0.0))
+				+ float(machine.production_rates_per_second.get(key, 0.0))
+			)
+
+	var available_production: Dictionary = {}
+
+	for key: Variant in gross_rates.keys():
+		available_production[str(key)] = (
+			float(gross_rates[key]) * delta_seconds
+		)
+
+	for target: Dictionary in production_targets:
+		if (
+			float(target["produced_quantity"])
+			< float(target["target_quantity"])
+			and float(target.get("deadline_total_seconds", 0.0)) > 0.0
+		):
+			target["deadline_remaining_seconds"] = maxf(
+				0.0,
+				float(target.get("deadline_remaining_seconds", 0.0))
+				- delta_seconds
+			)
+
+	var ordered_targets: Array[Dictionary] = production_targets.duplicate()
+	ordered_targets.sort_custom(_sort_production_targets)
+
+	for target: Dictionary in ordered_targets:
+		var target_quantity := float(target["target_quantity"])
+		var produced_quantity := float(target["produced_quantity"])
+
+		if produced_quantity >= target_quantity:
+			continue
+
+		var resource_id := str(target["resource_id"])
+		var available := float(
+			available_production.get(resource_id, 0.0)
+		)
+		var allocated := minf(
+			target_quantity - produced_quantity,
+			available
+		)
+		target["produced_quantity"] = produced_quantity + allocated
+		available_production[resource_id] = maxf(
+			available - allocated,
+			0.0
+		)
+
+
+func _sort_production_targets(left: Dictionary, right: Dictionary) -> bool:
+	var left_priority := int(left.get("priority", 1))
+	var right_priority := int(right.get("priority", 1))
+
+	if left_priority != right_priority:
+		return left_priority < right_priority
+
+	return production_targets.find(left) < production_targets.find(right)
+
+
+func _emit_production_targets_changed() -> void:
+	if event_bus != null:
+		event_bus.production_targets_changed.emit(self)
 
 
 func serialize_economy() -> Dictionary:

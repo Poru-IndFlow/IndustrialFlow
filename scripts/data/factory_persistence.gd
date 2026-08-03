@@ -28,6 +28,8 @@ static func save_factory(
 		),
 		"economy": factory.serialize_economy(),
 		"research": factory.serialize_research(),
+		"production_targets": factory.serialize_production_targets(),
+		"customer_orders": factory.serialize_customer_orders(),
 		"machines": _serialize_machines(factory),
 		"connections": _serialize_connections(factory)
 	}
@@ -170,6 +172,12 @@ static func _deserialize_factory(
 	factory.restore_economy(economy_data)
 	var research_data: Dictionary = data.get("research", {})
 	factory.restore_research(research_data)
+	factory.restore_production_targets(
+		data.get("production_targets", []) as Array
+	)
+	factory.restore_customer_orders(
+		data.get("customer_orders", []) as Array
+	)
 	var machine_entries: Array = data.get("machines", [])
 
 	for value: Variant in machine_entries:

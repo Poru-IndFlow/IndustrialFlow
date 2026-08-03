@@ -13,6 +13,10 @@ extends Node
 	"../RootVBox/Workspace/EditorSplit/WorkspaceTabs/Plant Overview"
 ) as PlantOverview
 
+@onready var scada_workspace := get_node(
+	"../RootVBox/Workspace/EditorSplit/WorkspaceTabs/SCADA"
+) as ScadaWorkspace
+
 @onready var controller_trends := get_node(
 	"../RootVBox/Workspace/EditorSplit/WorkspaceTabs/Controller Trends"
 ) as ControllerTrends
@@ -24,6 +28,14 @@ extends Node
 @onready var research_workspace := get_node(
 	"../RootVBox/Workspace/EditorSplit/WorkspaceTabs/Research"
 ) as ResearchWorkspace
+
+@onready var production_planning := get_node(
+	"../RootVBox/Workspace/EditorSplit/WorkspaceTabs/Production Planning"
+) as ProductionPlanning
+
+@onready var customer_orders := get_node(
+	"../RootVBox/Workspace/EditorSplit/WorkspaceTabs/Customer Orders"
+) as CustomerOrders
 
 @onready var workspace_tabs := get_node(
 	"../RootVBox/Workspace/EditorSplit/WorkspaceTabs"
@@ -56,6 +68,7 @@ var save_dialog: FileDialog
 var load_dialog: FileDialog
 var current_project_path := ""
 var last_displayed_simulation_second := -1
+var factory_graph_selection_count := 0
 
 
 func _ready() -> void:
@@ -68,6 +81,13 @@ func _ready() -> void:
 	plant_overview.machine_requested.connect(
 		_on_overview_machine_requested
 	)
+	scada_workspace.machine_requested.connect(
+		_on_scada_machine_requested
+	)
+	production_planning.machine_requested.connect(
+		_on_overview_machine_requested
+	)
+	workspace_tabs.tab_changed.connect(_on_workspace_tab_changed)
 
 	editor_toolbar.undo_requested.connect(editor_history.undo)
 	editor_toolbar.redo_requested.connect(editor_history.redo)
@@ -130,9 +150,12 @@ func set_factory(new_factory: FactoryModel) -> void:
 	machine_palette.bind_factory(factory)
 	machine_inspector.bind_factory(factory)
 	plant_overview.bind_factory(factory)
+	scada_workspace.bind_factory(factory)
 	controller_trends.bind_factory(factory)
 	economy_trends.bind_factory(factory)
 	research_workspace.bind_factory(factory)
+	production_planning.bind_factory(factory)
+	customer_orders.bind_factory(factory)
 
 	if editor_history != null:
 		editor_history.clear()
@@ -141,7 +164,10 @@ func set_factory(new_factory: FactoryModel) -> void:
 func _on_tick_advanced(delta_seconds: float) -> void:
 	if factory != null:
 		factory.tick(delta_seconds)
+		scada_workspace.advance(delta_seconds)
 		controller_trends.advance(delta_seconds)
+		production_planning.advance(delta_seconds)
+		customer_orders.advance(delta_seconds)
 		_update_simulation_toolbar()
 
 
@@ -214,12 +240,35 @@ func _on_overview_machine_requested(machine_id: String) -> void:
 	)
 
 
+func _on_scada_machine_requested(machine: MachineModel) -> void:
+	machine_inspector.show_machine(machine)
+	controller_trends.show_machine(machine)
+
+
 func _on_selection_changed(selected_count: int) -> void:
-	editor_toolbar.set_selection_count(selected_count)
+	factory_graph_selection_count = selected_count
+
+	if workspace_tabs.current_tab == 0:
+		editor_toolbar.set_selection_count(selected_count)
+
+
+func _on_workspace_tab_changed(tab_index: int) -> void:
+	var selected_workspace := workspace_tabs.get_tab_control(tab_index)
+	var is_factory_graph := selected_workspace == factory_graph
+	var is_production_planning := selected_workspace == production_planning
+	var is_customer_orders := selected_workspace == customer_orders
+	machine_palette.visible = is_factory_graph
+	machine_inspector.visible = not (
+		is_production_planning or is_customer_orders
+	)
+	editor_toolbar.set_selection_count(
+		factory_graph_selection_count if is_factory_graph else 0
+	)
 
 
 func _on_delete_requested() -> void:
-	factory_graph.delete_selected_machines()
+	if workspace_tabs.current_tab == 0:
+		factory_graph.delete_selected_machines()
 
 
 func _on_machines_deleted(

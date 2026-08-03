@@ -1,0 +1,120 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/customer_orders.gd" id="1"]
+
+[node name="Customer Orders" type="VBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 10
+script = ExtResource("1")
+
+[node name="Header" type="HBoxContainer" parent="."]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Title" type="Label" parent="Header"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "Customer Orders"
+
+[node name="BuildLabel" type="Label" parent="Header"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.333333, 0.65098, 1, 1)
+text = "Build"
+
+[node name="CashLabel" type="Label" parent="Header"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Cash $0.00"
+horizontal_alignment = 2
+
+[node name="GenerateOfferButton" type="Button" parent="Header"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Request New Offer"
+
+[node name="FilterRow" type="HBoxContainer" parent="."]
+layout_mode = 2
+
+[node name="FilterLabel" type="Label" parent="FilterRow"]
+layout_mode = 2
+text = "Show"
+
+[node name="OrderFilter" type="OptionButton" parent="FilterRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(170, 0)
+layout_mode = 2
+
+[node name="SummaryLabel" type="Label" parent="FilterRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+text = "No orders"
+horizontal_alignment = 2
+
+[node name="MetricsPanel" type="PanelContainer" parent="."]
+layout_mode = 2
+
+[node name="Metrics" type="GridContainer" parent="MetricsPanel"]
+layout_mode = 2
+columns = 4
+theme_override_constants/h_separation = 18
+theme_override_constants/v_separation = 4
+
+[node name="RevenueTitle" type="Label" parent="MetricsPanel/Metrics"]
+layout_mode = 2
+text = "Completed revenue"
+
+[node name="PenaltyTitle" type="Label" parent="MetricsPanel/Metrics"]
+layout_mode = 2
+text = "Late penalties"
+
+[node name="CompletionTitle" type="Label" parent="MetricsPanel/Metrics"]
+layout_mode = 2
+text = "Completion rate"
+
+[node name="ActiveValueTitle" type="Label" parent="MetricsPanel/Metrics"]
+layout_mode = 2
+text = "Active contract value"
+
+[node name="ContractRevenueLabel" type="Label" parent="MetricsPanel/Metrics"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.286275, 0.815686, 0.533333, 1)
+text = "$0.00"
+
+[node name="ContractPenaltiesLabel" type="Label" parent="MetricsPanel/Metrics"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.937255, 0.368627, 0.368627, 1)
+text = "$0.00"
+
+[node name="CompletionRateLabel" type="Label" parent="MetricsPanel/Metrics"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "—"
+
+[node name="ActiveValueLabel" type="Label" parent="MetricsPanel/Metrics"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.333333, 0.65098, 1, 1)
+text = "$0.00"
+
+[node name="OrderScroll" type="ScrollContainer" parent="."]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="OrderList" type="VBoxContainer" parent="OrderScroll"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
+[node name="Footer" type="Label" parent="."]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.603922, 0.65098, 0.721569, 1)
+text = "Accepted orders create High-priority production targets • Delivery requires physical plant inventory"
