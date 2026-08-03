@@ -260,7 +260,11 @@ func tick(delta_seconds: float) -> void:
 
 
 func generate_customer_order() -> Dictionary:
-	var definitions := ResourceRegistry.get_all_definitions()
+	var definitions: Array[Dictionary] = []
+
+	for definition: Dictionary in ResourceRegistry.get_all_definitions():
+		if bool(definition.get("customer_order_enabled", true)):
+			definitions.append(definition)
 
 	if definitions.is_empty():
 		return {}

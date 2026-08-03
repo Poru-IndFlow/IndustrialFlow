@@ -1,0 +1,32 @@
+{
+  "id": "pulp_washer",
+  "display_name": "Pulp Washer",
+  "category": "processing",
+  "processing_mode": "continuous",
+  "purchase_cost": 4200.0,
+  "salvage_ratio": 0.5,
+  "ramp_up_seconds": 3.0,
+  "ramp_down_seconds": 2.0,
+  "cycle_time": 5.0,
+  "wear_per_operating_hour": 0.25,
+  "maintenance_warning_condition": 0.75,
+  "maintenance_critical_condition": 0.4,
+  "maintenance_cost": 500.0,
+  "maintenance_duration_seconds": 45.0,
+  "emergency_repair_cost": 1300.0,
+  "emergency_repair_duration_seconds": 90.0,
+  "idle_power_ratio": 0.15,
+  "operating_cost_per_power_hour": 10.0,
+  "inputs": [
+    {"resource": "raw_pulp", "amount": 10.0},
+    {"resource": "water", "amount": 5.0}
+  ],
+  "outputs": [
+    {"resource": "finished_pulp", "formula": "raw_pulp * 0.9"}
+  ],
+  "internal_storage": {
+    "raw_pulp": 50.0,
+    "water": 25.0,
+    "finished_pulp": 50.0
+  }
+}

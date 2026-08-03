@@ -1,0 +1,14 @@
+{
+  "id": "raw_pulp",
+  "display_name": "Raw Pulp",
+  "state": "liquid",
+  "port_type": 1,
+  "unit": "units",
+  "customer_order_enabled": false,
+  "colour": [
+    0.72,
+    0.67,
+    0.49,
+    1.0
+  ]
+}

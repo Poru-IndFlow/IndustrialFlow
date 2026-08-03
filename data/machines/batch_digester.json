@@ -1,0 +1,46 @@
+{
+  "id": "batch_digester",
+  "display_name": "Batch Digester",
+  "category": "processing",
+  "processing_mode": "batch",
+  "purchase_cost": 6500.0,
+  "salvage_ratio": 0.5,
+  "ramp_up_seconds": 4.0,
+  "ramp_down_seconds": 2.0,
+  "cycle_time": 30.0,
+  "wear_per_operating_hour": 0.35,
+  "maintenance_warning_condition": 0.75,
+  "maintenance_critical_condition": 0.4,
+  "maintenance_cost": 800.0,
+  "maintenance_duration_seconds": 60.0,
+  "emergency_repair_cost": 2000.0,
+  "emergency_repair_duration_seconds": 120.0,
+  "idle_power_ratio": 0.2,
+  "operating_cost_per_power_hour": 18.0,
+  "performance_curve": [
+    {"speed": 0.0, "output": 0.0},
+    {"speed": 0.5, "output": 0.4},
+    {"speed": 1.0, "output": 1.0},
+    {"speed": 1.5, "output": 1.25}
+  ],
+  "power_curve": [
+    {"speed": 0.0, "power": 0.0},
+    {"speed": 0.5, "power": 0.6},
+    {"speed": 1.0, "power": 1.0},
+    {"speed": 1.5, "power": 1.8}
+  ],
+  "inputs": [
+    {"resource": "wood_chips", "amount": 100.0},
+    {"resource": "steam", "amount": 10.0},
+    {"resource": "water", "amount": 20.0}
+  ],
+  "outputs": [
+    {"resource": "raw_pulp", "formula": "wood_chips * 0.8"}
+  ],
+  "internal_storage": {
+    "wood_chips": 200.0,
+    "steam": 20.0,
+    "water": 40.0,
+    "raw_pulp": 100.0
+  }
+}
