@@ -134,6 +134,11 @@ static func _serialize_machines(factory: FactoryModel) -> Array[Dictionary]:
 			"failed_downtime_seconds": machine.failed_downtime_seconds,
 			"state": int(machine.state),
 			"cycle_progress": machine.cycle_progress,
+			"batch_active": machine.batch_active,
+			"batch_outputs": machine.batch_outputs.duplicate(true),
+			"batch_count": machine.batch_count,
+			"hold_after_batch": machine.hold_after_batch,
+			"batch_held": machine.batch_held,
 			"inventory": machine.inventory.amounts.duplicate(true)
 		})
 
@@ -362,6 +367,18 @@ static func _deserialize_factory(
 		machine.cycle_progress = float(
 			entry.get("cycle_progress", 0.0)
 		)
+		machine.batch_active = bool(entry.get("batch_active", false))
+		machine.batch_count = maxi(0, int(entry.get("batch_count", 0)))
+		machine.hold_after_batch = bool(entry.get("hold_after_batch", false))
+		machine.batch_held = bool(entry.get("batch_held", false))
+		machine.batch_outputs.clear()
+		var saved_batch_outputs: Array = entry.get("batch_outputs", [])
+
+		for output: Variant in saved_batch_outputs:
+			if output is Dictionary:
+				machine.batch_outputs.append(
+					(output as Dictionary).duplicate(true)
+				)
 		_restore_inventory(
 			machine,
 			entry.get("inventory", {}) as Dictionary

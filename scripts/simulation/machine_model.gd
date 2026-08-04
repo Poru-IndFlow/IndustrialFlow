@@ -72,6 +72,11 @@ var controller_output_max := 1.5
 var controller_integral := 0.0
 var controller_error := 0.0
 var cycle_progress := 0.0
+var batch_active := false
+var batch_outputs: Array[Dictionary] = []
+var batch_count := 0
+var hold_after_batch := false
+var batch_held := false
 var graph_position := Vector2.ZERO
 var production_rates_per_second: Dictionary = {}
 var consumption_rates_per_second: Dictionary = {}
@@ -536,6 +541,51 @@ func _get_base_power_demand() -> float:
 
 func supports_maintenance() -> bool:
 	return wear_per_operating_hour > 0.0
+
+
+func is_batch_machine() -> bool:
+	return str(definition.get("processing_mode", "")) == "batch"
+
+
+func get_batch_progress_ratio() -> float:
+	if not batch_active or recipe == null or recipe.cycle_time <= 0.0:
+		return 0.0
+
+	return clampf(cycle_progress / recipe.cycle_time, 0.0, 1.0)
+
+
+func get_batch_remaining_seconds() -> float:
+	if not batch_active or recipe == null:
+		return 0.0
+
+	var effective_rate := maxf(get_effective_production_rate(), 0.001)
+	return maxf(recipe.cycle_time - cycle_progress, 0.0) / effective_rate
+
+
+func get_batch_status_text() -> String:
+	if not is_batch_machine():
+		return "Not a batch machine"
+	if batch_held:
+		return "Held After Batch"
+	if batch_active and cycle_progress >= recipe.cycle_time:
+		return "Waiting to Discharge"
+	if batch_active:
+		return "Cooking"
+	if state == State.BLOCKED_OUTPUT:
+		return "Waiting for Output Capacity"
+	if state == State.BLOCKED_INPUT:
+		return "Filling"
+	return "Ready"
+
+
+func set_hold_after_batch(value: bool) -> void:
+	if hold_after_batch == value and (value or not batch_held):
+		return
+
+	hold_after_batch = value
+	if not value:
+		batch_held = false
+	notify_settings_changed()
 
 
 func get_condition_efficiency() -> float:

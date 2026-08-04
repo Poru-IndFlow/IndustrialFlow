@@ -16,8 +16,8 @@ const ALARM_VIEW_ACTIVE_HISTORY := 2
 const ALARM_VIEW_CLEARED_HISTORY := 3
 const ALARM_VIEW_ACKNOWLEDGED_HISTORY := 4
 const ALARM_VIEW_CRITICAL_HISTORY := 5
-const SCADA_NODE_FOOTPRINT := Vector2(245, 170)
-const SCADA_LAYOUT_STEP := Vector2(270, 195)
+const SCADA_NODE_FOOTPRINT := Vector2(245, 190)
+const SCADA_LAYOUT_STEP := Vector2(270, 215)
 
 var factory: FactoryModel
 var input_ports: Dictionary = {}
@@ -234,7 +234,7 @@ func _add_machine_node(machine: MachineModel) -> void:
 	node.name = machine.instance_id
 	node.title = machine.display_name
 	node.position_offset = _find_scada_node_position(machine)
-	node.custom_minimum_size = Vector2(245, 145)
+	node.custom_minimum_size = Vector2(245, 165 if machine.is_batch_machine() else 145)
 	node.draggable = false
 
 	var state_label := Label.new()
@@ -375,6 +375,12 @@ func _update_machine_node(machine: MachineModel) -> void:
 			machine.power_demand,
 			machine.condition * 100.0
 		]
+		if machine.is_batch_machine():
+			metrics_label.text += "\n%s  •  %.0f%%  •  %d complete" % [
+				machine.get_batch_status_text(),
+				machine.get_batch_progress_ratio() * 100.0,
+				machine.batch_count
+			]
 
 	for resource_id: String in _get_machine_resources(machine):
 		var label := resource_labels.get(

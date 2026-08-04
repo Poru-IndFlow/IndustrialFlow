@@ -19,6 +19,13 @@ var effective_rate_value_label: Label
 var efficiency_value_label: Label
 var power_demand_value_label: Label
 var power_mode_value_label: Label
+var batch_section: VBoxContainer
+var batch_status_value_label: Label
+var batch_progress_bar: ProgressBar
+var batch_remaining_value_label: Label
+var batch_count_value_label: Label
+var batch_inputs_value_label: Label
+var hold_after_batch_check_box: CheckBox
 var maintenance_section: VBoxContainer
 var condition_badge: Label
 var condition_value_label: Label
@@ -164,6 +171,38 @@ func _ready() -> void:
 		power_mode_row
 	)
 	operation_section.add_child(power_mode_row)
+
+	batch_section = VBoxContainer.new()
+	operation_section.add_child(batch_section)
+	batch_section.add_child(HSeparator.new())
+	batch_section.add_child(UIWidgets.create_section_header("Batch Operation"))
+
+	var batch_status_row := UIWidgets.create_labeled_value("Phase", "Ready")
+	batch_status_value_label = UIWidgets.get_value_label(batch_status_row)
+	batch_section.add_child(batch_status_row)
+
+	batch_progress_bar = ProgressBar.new()
+	batch_progress_bar.min_value = 0.0
+	batch_progress_bar.max_value = 100.0
+	batch_progress_bar.show_percentage = true
+	batch_section.add_child(batch_progress_bar)
+
+	var batch_remaining_row := UIWidgets.create_labeled_value("Time remaining", "—")
+	batch_remaining_value_label = UIWidgets.get_value_label(batch_remaining_row)
+	batch_section.add_child(batch_remaining_row)
+
+	var batch_count_row := UIWidgets.create_labeled_value("Completed batches", "0")
+	batch_count_value_label = UIWidgets.get_value_label(batch_count_row)
+	batch_section.add_child(batch_count_row)
+
+	batch_inputs_value_label = Label.new()
+	batch_inputs_value_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	batch_section.add_child(batch_inputs_value_label)
+
+	hold_after_batch_check_box = CheckBox.new()
+	hold_after_batch_check_box.text = "Hold after current batch"
+	hold_after_batch_check_box.toggled.connect(_on_hold_after_batch_toggled)
+	batch_section.add_child(hold_after_batch_check_box)
 
 	operation_section.add_child(HSeparator.new())
 
@@ -788,6 +827,7 @@ func _on_machine_changed(machine: MachineModel) -> void:
 func _on_machine_performance_changed(machine: MachineModel) -> void:
 	if machine == selected_machine:
 		_update_performance_labels()
+		_update_batch_section()
 
 
 func _on_machine_power_changed(machine: MachineModel) -> void:
@@ -893,6 +933,7 @@ func _refresh() -> void:
 		efficiency_value_label.text = "—"
 		power_demand_value_label.text = "0.00 PU"
 		power_mode_value_label.text = "Off"
+		batch_section.visible = false
 		maintenance_section.visible = false
 		control_section.visible = false
 		upgrade_section.visible = false
@@ -929,6 +970,8 @@ func _refresh() -> void:
 	maintenance_section.visible = (
 		selected_machine.supports_maintenance()
 	)
+	batch_section.visible = selected_machine.is_batch_machine()
+	_update_batch_section()
 	control_section.visible = (
 		selected_machine.supports_inventory_control()
 	)
@@ -971,6 +1014,36 @@ func _refresh() -> void:
 		selected_machine.definition.get("outputs", [])
 	)
 	_populate_inventory()
+
+
+func _update_batch_section() -> void:
+	if selected_machine == null or not selected_machine.is_batch_machine():
+		batch_section.visible = false
+		return
+
+	batch_section.visible = true
+	batch_status_value_label.text = selected_machine.get_batch_status_text()
+	batch_progress_bar.value = selected_machine.get_batch_progress_ratio() * 100.0
+	batch_remaining_value_label.text = (
+		"%.1f s" % selected_machine.get_batch_remaining_seconds()
+		if selected_machine.batch_active
+		else "—"
+	)
+	batch_count_value_label.text = str(selected_machine.batch_count)
+	hold_after_batch_check_box.button_pressed = selected_machine.hold_after_batch
+
+	var readiness: PackedStringArray = []
+	for input: Dictionary in selected_machine.recipe.inputs:
+		var resource_id := str(input.get("resource", ""))
+		var required := float(input.get("amount", 0.0))
+		var available := selected_machine.inventory.get_amount(resource_id)
+		readiness.append("%s %.1f / %.1f %s" % [
+			ResourceRegistry.get_display_name(resource_id),
+			available,
+			required,
+			ResourceRegistry.get_unit(resource_id)
+		])
+	batch_inputs_value_label.text = "Next batch inputs\n%s" % "\n".join(readiness)
 
 
 func _update_upgrade_section() -> void:
@@ -1417,6 +1490,18 @@ func _on_operating_rate_changed(percent: float) -> void:
 		return
 
 	selected_machine.set_operating_rate(percent / 100.0)
+
+
+func _on_hold_after_batch_toggled(value: bool) -> void:
+	if updating_controls or selected_machine == null:
+		return
+
+	var previous_value := selected_machine.hold_after_batch
+	_execute_setting_action(
+		"set batch hold",
+		selected_machine.set_hold_after_batch.bind(value),
+		selected_machine.set_hold_after_batch.bind(previous_value)
+	)
 
 
 func _on_control_mode_selected(index: int) -> void:

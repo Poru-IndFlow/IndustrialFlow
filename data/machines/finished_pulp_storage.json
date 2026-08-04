@@ -1,0 +1,17 @@
+{
+  "id": "finished_pulp_storage",
+  "display_name": "Finished Pulp Storage",
+  "category": "storage",
+  "processing_mode": "storage",
+  "purchase_cost": 2200.0,
+  "salvage_ratio": 0.5,
+  "inputs": [
+    {"resource": "finished_pulp"}
+  ],
+  "outputs": [
+    {"resource": "finished_pulp"}
+  ],
+  "storage_capacity": {
+    "finished_pulp": 3000.0
+  }
+}

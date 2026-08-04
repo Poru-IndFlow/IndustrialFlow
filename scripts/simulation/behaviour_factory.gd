@@ -8,6 +8,8 @@ static func create(processing_mode: String) -> MachineBehaviour:
 			return SupplierBehaviour.new()
 		"continuous":
 			return ContinuousBehaviour.new()
+		"batch":
+			return BatchBehaviour.new()
 		"storage":
 			return StorageBehaviour.new()
 		_:

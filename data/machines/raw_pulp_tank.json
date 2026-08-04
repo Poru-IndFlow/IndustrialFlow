@@ -1,0 +1,17 @@
+{
+  "id": "raw_pulp_tank",
+  "display_name": "Raw Pulp Tank",
+  "category": "storage",
+  "processing_mode": "storage",
+  "purchase_cost": 1800.0,
+  "salvage_ratio": 0.5,
+  "inputs": [
+    {"resource": "raw_pulp"}
+  ],
+  "outputs": [
+    {"resource": "raw_pulp"}
+  ],
+  "storage_capacity": {
+    "raw_pulp": 2000.0
+  }
+}

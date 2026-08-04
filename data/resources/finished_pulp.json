@@ -1,0 +1,14 @@
+{
+  "id": "finished_pulp",
+  "display_name": "Finished Pulp",
+  "state": "liquid",
+  "port_type": 1,
+  "unit": "units",
+  "customer_order_enabled": true,
+  "colour": [
+    0.9,
+    0.87,
+    0.72,
+    1.0
+  ]
+}
