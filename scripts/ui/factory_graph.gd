@@ -5,6 +5,7 @@ signal machine_selected(machine: MachineModel)
 signal connection_selected(connection: ConnectionModel)
 signal selection_changed(selected_count: int)
 signal machines_deleted(deleted_count: int, salvage_value: float)
+signal placement_state_changed(active: bool, valid: bool, message: String)
 
 
 var factory: FactoryModel
@@ -20,6 +21,15 @@ var dirty_machines: Dictionary = {}
 var selection_notification_pending := false
 var move_start_positions: Dictionary = {}
 var selected_connection: ConnectionModel
+var pending_machine: MachineModel
+var pending_placement_valid := false
+
+const GRID_CELL_SIZE := 32.0
+const GRID_MINOR_COLOR := Color(0.18, 0.20, 0.23, 0.45)
+const GRID_MAJOR_COLOR := Color(0.26, 0.29, 0.33, 0.65)
+const FOOTPRINT_COMMITTED_COLOR := Color(0.20, 0.48, 0.72, 0.25)
+const FOOTPRINT_VALID_COLOR := Color(0.20, 0.78, 0.46, 0.42)
+const FOOTPRINT_INVALID_COLOR := Color(0.90, 0.25, 0.25, 0.48)
 
 
 func _ready() -> void:
@@ -29,6 +39,18 @@ func _ready() -> void:
 	begin_node_move.connect(_on_begin_node_move)
 	end_node_move.connect(_on_end_node_move)
 	right_disconnects = true
+	snapping_enabled = true
+	snapping_distance = int(GRID_CELL_SIZE)
+	set_process(true)
+
+
+func _process(_delta: float) -> void:
+	queue_redraw()
+
+
+func _draw() -> void:
+	_draw_plant_grid()
+	_draw_machine_footprints()
 
 
 func _gui_input(event: InputEvent) -> void:
@@ -102,16 +124,27 @@ func request_machine(definition_id: String) -> bool:
 	if not factory.can_afford_machine(definition_id):
 		return false
 
-	var position := scroll_offset + size * 0.5
+	if pending_machine != null:
+		return false
+
+	var position := _snap_position(scroll_offset + size * 0.5 / zoom)
 	var machine := factory.create_machine(definition_id, position)
 
 	if machine != null:
-		_execute_history_action(
-			"add %s" % machine.display_name,
-			_purchase_existing_machine.bind(machine),
-			_reverse_machine_purchase.bind(machine)
-		)
-		return true
+		machine.placement_committed = false
+		machine.graph_position = _find_free_position(machine, position)
+		pending_machine = machine
+		if factory.add_machine(machine):
+			pending_placement_valid = _is_placement_valid(machine)
+			placement_state_changed.emit(
+				true,
+				pending_placement_valid,
+				_placement_message(machine)
+			)
+			select_and_focus_machine(machine.instance_id)
+			return true
+
+		pending_machine = null
 
 	return false
 
@@ -150,6 +183,8 @@ func select_and_focus_machine(machine_id: String) -> void:
 
 func clear_graph() -> void:
 	selected_connection = null
+	pending_machine = null
+	pending_placement_valid = false
 	clear_connections()
 	input_ports.clear()
 	output_ports.clear()
@@ -165,14 +200,20 @@ func clear_graph() -> void:
 			child.queue_free()
 
 	selection_changed.emit(0)
+	placement_state_changed.emit(false, false, "")
 
 
 func add_machine_node(machine: MachineModel) -> void:
 	var node := GraphNode.new()
 	node.name = machine.instance_id
-	node.title = machine.display_name
+	node.title = (
+		machine.display_name
+		if machine.placement_committed
+		else "%s — PLACING" % machine.display_name
+	)
 	node.position_offset = machine.graph_position
 	node.custom_minimum_size = Vector2(210, 100)
+	node.draggable = not machine.placement_committed
 
 	var state_label := Label.new()
 	state_label.text = "State: %s" % _state_text(machine.state)
@@ -264,6 +305,199 @@ func add_machine_node(machine: MachineModel) -> void:
 	)
 
 	add_child(node)
+	queue_redraw()
+
+
+func commit_pending_placement() -> bool:
+	if (
+		pending_machine == null
+		or not pending_placement_valid
+		or factory == null
+	):
+		return false
+	if not factory.can_afford_machine(pending_machine.definition_id):
+		placement_state_changed.emit(
+			true,
+			false,
+			"Insufficient cash to construct %s" % pending_machine.display_name
+		)
+		return false
+
+	var machine := pending_machine
+	_execute_history_action(
+		"construct %s" % machine.display_name,
+		_commit_machine_placement.bind(machine),
+		_uncommit_machine_placement.bind(machine)
+	)
+	pending_machine = null
+	pending_placement_valid = false
+	placement_state_changed.emit(false, false, "")
+	queue_redraw()
+	return machine.placement_committed
+
+
+func cancel_pending_placement() -> bool:
+	if pending_machine == null or factory == null:
+		return false
+
+	var machine := pending_machine
+	pending_machine = null
+	pending_placement_valid = false
+	factory.remove_machine(machine.instance_id)
+	machine_selected.emit(null)
+	placement_state_changed.emit(false, false, "")
+	queue_redraw()
+	return true
+
+
+func rotate_pending_placement() -> bool:
+	if pending_machine == null:
+		return false
+
+	pending_machine.placement_orientation = (
+		pending_machine.placement_orientation + 90
+	) % 360
+	pending_placement_valid = _is_placement_valid(pending_machine)
+	placement_state_changed.emit(
+		true,
+		pending_placement_valid,
+		_placement_message(pending_machine)
+	)
+	queue_redraw()
+	return true
+
+
+func _commit_machine_placement(machine: MachineModel) -> void:
+	if factory.commit_machine_placement(machine):
+		var node := get_node_or_null(NodePath(machine.instance_id)) as GraphNode
+		if node != null:
+			node.position_offset = machine.graph_position
+			node.draggable = false
+			node.title = machine.display_name
+		if pending_machine == machine:
+			pending_machine = null
+			pending_placement_valid = false
+			placement_state_changed.emit(false, false, "")
+
+
+func _uncommit_machine_placement(machine: MachineModel) -> void:
+	if factory.reverse_machine_placement_commit(machine):
+		pending_machine = machine
+		pending_placement_valid = _is_placement_valid(machine)
+		var node := get_node_or_null(NodePath(machine.instance_id)) as GraphNode
+		if node != null:
+			node.draggable = true
+			node.title = "%s — PLACING" % machine.display_name
+		placement_state_changed.emit(
+			true,
+			pending_placement_valid,
+			_placement_message(machine)
+		)
+
+
+func _draw_plant_grid() -> void:
+	var spacing := GRID_CELL_SIZE * zoom
+	if spacing < 4.0:
+		return
+
+	var origin := -scroll_offset * zoom
+	var first_x := fmod(origin.x, spacing)
+	var first_y := fmod(origin.y, spacing)
+	var column := int(floor(scroll_offset.x / GRID_CELL_SIZE))
+	var x := first_x
+	while x <= size.x:
+		var color := GRID_MAJOR_COLOR if column % 5 == 0 else GRID_MINOR_COLOR
+		draw_line(Vector2(x, 0.0), Vector2(x, size.y), color, 1.0)
+		x += spacing
+		column += 1
+
+	var row := int(floor(scroll_offset.y / GRID_CELL_SIZE))
+	var y := first_y
+	while y <= size.y:
+		var color := GRID_MAJOR_COLOR if row % 5 == 0 else GRID_MINOR_COLOR
+		draw_line(Vector2(0.0, y), Vector2(size.x, y), color, 1.0)
+		y += spacing
+		row += 1
+
+
+func _draw_machine_footprints() -> void:
+	if factory == null:
+		return
+
+	for value: Variant in factory.machines.values():
+		var machine := value as MachineModel
+		if machine == null:
+			continue
+
+		var graph_rect := _get_footprint_rect(machine)
+		var screen_rect := Rect2(
+			(graph_rect.position - scroll_offset) * zoom,
+			graph_rect.size * zoom
+		)
+		var color := FOOTPRINT_COMMITTED_COLOR
+		if machine == pending_machine:
+			color = FOOTPRINT_VALID_COLOR if pending_placement_valid else FOOTPRINT_INVALID_COLOR
+		draw_rect(screen_rect, color, true)
+		draw_rect(screen_rect, color.lightened(0.35), false, 2.0)
+
+
+func _get_footprint_rect(machine: MachineModel) -> Rect2:
+	return Rect2(
+		_snap_position(machine.graph_position),
+		Vector2(machine.get_oriented_footprint()) * GRID_CELL_SIZE
+	)
+
+
+func _is_placement_valid(machine: MachineModel) -> bool:
+	if factory == null or machine == null:
+		return false
+
+	var candidate := _get_footprint_rect(machine)
+	for value: Variant in factory.machines.values():
+		var other := value as MachineModel
+		if other == null or other == machine:
+			continue
+		if candidate.intersects(_get_footprint_rect(other)):
+			return false
+
+	return true
+
+
+func _find_free_position(machine: MachineModel, origin: Vector2) -> Vector2:
+	machine.graph_position = _snap_position(origin)
+	if _is_placement_valid(machine):
+		return machine.graph_position
+
+	for ring: int in range(1, 33):
+		for y: int in range(-ring, ring + 1):
+			for x: int in range(-ring, ring + 1):
+				if absi(x) != ring and absi(y) != ring:
+					continue
+				machine.graph_position = _snap_position(origin) + Vector2(
+					x * GRID_CELL_SIZE,
+					y * GRID_CELL_SIZE
+				)
+				if _is_placement_valid(machine):
+					return machine.graph_position
+
+	return _snap_position(origin)
+
+
+func _snap_position(position: Vector2) -> Vector2:
+	return Vector2(
+		roundf(position.x / GRID_CELL_SIZE) * GRID_CELL_SIZE,
+		roundf(position.y / GRID_CELL_SIZE) * GRID_CELL_SIZE
+	)
+
+
+func _placement_message(machine: MachineModel) -> String:
+	var footprint := machine.get_oriented_footprint()
+	return "%s footprint %d × %d — %s" % [
+		machine.display_name,
+		footprint.x,
+		footprint.y,
+		"ready to construct" if pending_placement_valid else "overlaps existing equipment"
+	]
 
 
 func _get_machine_resources(machine: MachineModel) -> Array[String]:
@@ -528,6 +762,8 @@ func _on_connection_request(
 
 	if from_machine == null or to_machine == null:
 		return
+	if not from_machine.placement_committed or not to_machine.placement_committed:
+		return
 
 	var connection := ConnectionModel.new(
 		from_machine,
@@ -603,6 +839,15 @@ func _delete_machine_ids(nodes: Array[StringName]) -> int:
 	if machines.is_empty():
 		return 0
 
+	var cancelled_count := 0
+	if pending_machine != null and machines.has(pending_machine):
+		var provisional_machine := pending_machine
+		cancel_pending_placement()
+		machines.erase(provisional_machine)
+		cancelled_count = 1
+		if machines.is_empty():
+			return 1
+
 	var connections := _get_related_connections(machines)
 	var salvage_value := 0.0
 
@@ -610,9 +855,9 @@ func _delete_machine_ids(nodes: Array[StringName]) -> int:
 		salvage_value += factory.get_machine_salvage_value(machine)
 
 	var label := (
-		"delete machine"
+		"dismantle machine"
 		if machines.size() == 1
-		else "delete %d machines" % machines.size()
+		else "dismantle %d machines" % machines.size()
 	)
 	_execute_history_action(
 		label,
@@ -620,7 +865,7 @@ func _delete_machine_ids(nodes: Array[StringName]) -> int:
 		_restore_machine_group.bind(machines, connections)
 	)
 
-	var deleted_count := machines.size()
+	var deleted_count := machines.size() + cancelled_count
 
 	if deleted_count > 0:
 		machine_selected.emit(null)
@@ -706,6 +951,10 @@ func _get_selected_machine_ids() -> Array[StringName]:
 
 
 func _on_machine_removed(machine_id: String) -> void:
+	if pending_machine != null and pending_machine.instance_id == machine_id:
+		pending_machine = null
+		pending_placement_valid = false
+		placement_state_changed.emit(false, false, "")
 	var graph_node := get_node_or_null(
 		NodePath(machine_id)
 	) as GraphNode
@@ -829,7 +1078,20 @@ func _on_node_position_changed(
 	node: GraphNode,
 	machine: MachineModel
 ) -> void:
-	machine.set_graph_position(node.position_offset)
+	if machine.placement_committed:
+		if node.position_offset != machine.graph_position:
+			node.position_offset = machine.graph_position
+		return
+
+	var snapped := _snap_position(node.position_offset)
+	machine.set_graph_position(snapped)
+	pending_placement_valid = _is_placement_valid(machine)
+	placement_state_changed.emit(
+		true,
+		pending_placement_valid,
+		_placement_message(machine)
+	)
+	queue_redraw()
 
 
 func _on_begin_node_move() -> void:
@@ -838,7 +1100,7 @@ func _on_begin_node_move() -> void:
 	for node_name: StringName in _get_selected_machine_ids():
 		var machine := factory.get_machine(str(node_name))
 
-		if machine != null:
+		if machine != null and not machine.placement_committed:
 			move_start_positions[machine.instance_id] = (
 				machine.graph_position
 			)
@@ -884,6 +1146,14 @@ func _apply_machine_positions(positions: Dictionary) -> void:
 
 		if graph_node != null:
 			graph_node.position_offset = position
+
+	if pending_machine != null:
+		pending_placement_valid = _is_placement_valid(pending_machine)
+		placement_state_changed.emit(
+			true,
+			pending_placement_valid,
+			_placement_message(pending_machine)
+		)
 
 
 func _resource_display_name(resource_id: String) -> String:

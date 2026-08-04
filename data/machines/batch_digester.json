@@ -5,6 +5,7 @@
   "processing_mode": "batch",
   "purchase_cost": 6500.0,
   "salvage_ratio": 0.5,
+  "grid_footprint": [8, 8],
   "ramp_up_seconds": 4.0,
   "ramp_down_seconds": 2.0,
   "cycle_time": 30.0,

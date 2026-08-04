@@ -5,6 +5,7 @@
   "processing_mode": "continuous",
   "purchase_cost": 2500.0,
   "salvage_ratio": 0.5,
+  "grid_footprint": [3, 3],
   "ramp_up_seconds": 3.0,
   "ramp_down_seconds": 2.0,
   "control_resource": "wood_chips",

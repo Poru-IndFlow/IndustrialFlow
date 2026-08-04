@@ -5,6 +5,7 @@
   "processing_mode": "storage",
   "purchase_cost": 2200.0,
   "salvage_ratio": 0.5,
+  "grid_footprint": [8, 8],
   "inputs": [
     {"resource": "finished_pulp"}
   ],

@@ -956,7 +956,13 @@ func _refresh() -> void:
 	output_title.text = "Outputs"
 	inventory_title.text = "Inventory"
 	name_label.text = selected_machine.display_name
-	id_label.text = "ID: %s" % selected_machine.instance_id
+	var footprint := selected_machine.get_oriented_footprint()
+	id_label.text = "ID: %s  •  Footprint: %d × %d  •  %s" % [
+		selected_machine.instance_id,
+		footprint.x,
+		footprint.y,
+		"Constructed" if selected_machine.placement_committed else "Awaiting construction"
+	]
 	updating_controls = true
 	enabled_check_box.disabled = false
 	enabled_check_box.button_pressed = selected_machine.enabled

@@ -7,6 +7,9 @@ signal load_requested
 signal undo_requested
 signal redo_requested
 signal delete_requested
+signal placement_commit_requested
+signal placement_cancel_requested
+signal placement_rotate_requested
 signal simulation_pause_requested(paused: bool)
 signal simulation_speed_requested(speed: float)
 
@@ -16,6 +19,9 @@ var load_button: Button
 var undo_button: Button
 var redo_button: Button
 var delete_button: Button
+var placement_commit_button: Button
+var placement_cancel_button: Button
+var placement_rotate_button: Button
 var simulation_pause_button: Button
 var simulation_speed_option: OptionButton
 var simulation_time_label: Label
@@ -57,10 +63,28 @@ func _ready() -> void:
 	add_child(VSeparator.new())
 
 	delete_button = _add_toolbar_button(
-		"Delete Selected",
-		"Delete selected machines (Delete)",
+		"Dismantle Selected",
+		"Dismantle selected constructed machines (Delete)",
 		delete_requested
 	)
+	placement_commit_button = _add_toolbar_button(
+		"Construct",
+		"Commit this machine placement (Enter)",
+		placement_commit_requested
+	)
+	placement_rotate_button = _add_toolbar_button(
+		"Rotate",
+		"Rotate the footprint 90 degrees (R)",
+		placement_rotate_requested
+	)
+	placement_cancel_button = _add_toolbar_button(
+		"Cancel Placement",
+		"Cancel this machine placement (Escape)",
+		placement_cancel_requested
+	)
+	placement_commit_button.visible = false
+	placement_rotate_button.visible = false
+	placement_cancel_button.visible = false
 
 	add_child(VSeparator.new())
 
@@ -187,11 +211,30 @@ func set_selection_count(count: int) -> void:
 	delete_button.disabled = count <= 0
 
 	if count <= 0:
-		delete_button.text = "Delete Selected"
+		delete_button.text = "Dismantle Selected"
 	elif count == 1:
-		delete_button.text = "Delete 1 Machine"
+		delete_button.text = "Dismantle 1 Machine"
 	else:
-		delete_button.text = "Delete %d Machines" % count
+		delete_button.text = "Dismantle %d Machines" % count
+
+
+func set_placement_state(
+	active: bool,
+	valid: bool,
+	message: String
+) -> void:
+	placement_commit_button.visible = active
+	placement_rotate_button.visible = active
+	placement_cancel_button.visible = active
+	placement_commit_button.disabled = not valid
+	if active:
+		show_status(
+			message,
+			ThemeManager.COLOR_SUCCESS if valid else ThemeManager.COLOR_DANGER,
+			0.0
+		)
+	else:
+		show_status("Ready", ThemeManager.COLOR_TEXT_MUTED)
 
 
 func show_status(
@@ -209,6 +252,28 @@ func show_status(
 
 
 func _unhandled_key_input(event: InputEvent) -> void:
+	if event.is_action_pressed("ui_accept") and placement_commit_button.visible:
+		if not placement_commit_button.disabled:
+			placement_commit_requested.emit()
+		get_viewport().set_input_as_handled()
+		return
+
+	if event.is_action_pressed("ui_cancel") and placement_cancel_button.visible:
+		placement_cancel_requested.emit()
+		get_viewport().set_input_as_handled()
+		return
+
+	if (
+		event is InputEventKey
+		and event.pressed
+		and not event.echo
+		and event.keycode == KEY_R
+		and placement_rotate_button.visible
+	):
+		placement_rotate_requested.emit()
+		get_viewport().set_input_as_handled()
+		return
+
 	if (
 		event.is_action_pressed("save_factory")
 		and not save_button.disabled

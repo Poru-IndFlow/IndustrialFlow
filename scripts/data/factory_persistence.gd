@@ -98,7 +98,7 @@ static func _serialize_machines(factory: FactoryModel) -> Array[Dictionary]:
 	for value: Variant in machine_ids:
 		var machine := factory.get_machine(str(value))
 
-		if machine == null:
+		if machine == null or not machine.placement_committed:
 			continue
 
 		result.append({
@@ -108,6 +108,9 @@ static func _serialize_machines(factory: FactoryModel) -> Array[Dictionary]:
 				"x": machine.graph_position.x,
 				"y": machine.graph_position.y
 			},
+			"grid_footprint": [machine.grid_footprint.x, machine.grid_footprint.y],
+			"placement_orientation": machine.placement_orientation,
+			"placement_committed": machine.placement_committed,
 			"enabled": machine.enabled,
 			"operating_rate": machine.operating_rate,
 			"manual_operating_rate": machine.manual_operating_rate,
@@ -356,6 +359,14 @@ static func _deserialize_factory(
 			0.0,
 			1.5
 		)
+		var saved_footprint: Array = entry.get("grid_footprint", [])
+		if saved_footprint.size() >= 2:
+			machine.grid_footprint = Vector2i(
+				maxi(1, int(saved_footprint[0])),
+				maxi(1, int(saved_footprint[1]))
+			)
+		machine.placement_orientation = int(entry.get("placement_orientation", 0))
+		machine.placement_committed = bool(entry.get("placement_committed", true))
 		machine.state = int(
 			entry.get("state", MachineModel.State.IDLE)
 		)
