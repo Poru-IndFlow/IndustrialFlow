@@ -3,6 +3,10 @@ extends MachineBehaviour
 
 
 func tick(machine: MachineModel, delta_seconds: float) -> void:
+	if machine.batch_held:
+		machine.set_state(MachineModel.State.IDLE)
+		return
+
 	if not machine.batch_active:
 		if not _start_batch(machine):
 			return
@@ -17,6 +21,8 @@ func tick(machine: MachineModel, delta_seconds: float) -> void:
 		machine.cycle_progress
 		+ delta_seconds * machine.get_effective_production_rate()
 	)
+	if machine.event_bus != null:
+		machine.event_bus.machine_performance_changed.emit(machine)
 
 	if machine.cycle_progress < machine.recipe.cycle_time:
 		return
@@ -30,7 +36,10 @@ func tick(machine: MachineModel, delta_seconds: float) -> void:
 	machine.batch_active = false
 	machine.batch_outputs.clear()
 	machine.cycle_progress = 0.0
+	machine.batch_count += 1
+	machine.batch_held = machine.hold_after_batch
 	machine.notify_inventory_changed()
+	machine.notify_settings_changed()
 
 
 func _start_batch(machine: MachineModel) -> bool:

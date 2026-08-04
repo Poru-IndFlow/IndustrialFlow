@@ -869,11 +869,13 @@ func _build_alert_signature(
 
 	for machine: MachineModel in machines:
 		parts.append(
-			"%s:%d:%.3f:%.1f" % [
+			"%s:%d:%.3f:%.1f:%d:%d" % [
 				machine.instance_id,
 				machine.state,
 				machine.condition,
-				machine.maintenance_remaining_seconds
+				machine.maintenance_remaining_seconds,
+				machine.batch_count,
+				int(machine.batch_held)
 			]
 		)
 
@@ -958,8 +960,12 @@ func _alert_detail(machine: MachineModel) -> String:
 		MachineModel.State.DISABLED:
 			return "Disabled"
 		MachineModel.State.BLOCKED_INPUT:
+			if machine.is_batch_machine():
+				return "Batch starved — %s" % _batch_input_shortfall(machine)
 			return "Blocked — waiting for input"
 		MachineModel.State.BLOCKED_OUTPUT:
+			if machine.is_batch_machine() and machine.batch_active:
+				return "Completed batch waiting to discharge"
 			return "Blocked — output has nowhere to go"
 
 	if machine.is_breakdown_risk_critical():
@@ -980,6 +986,22 @@ func _alert_detail(machine: MachineModel) -> String:
 	return "Maintenance due — %.1f%% condition" % (
 		machine.condition * 100.0
 	)
+
+
+func _batch_input_shortfall(machine: MachineModel) -> String:
+	var missing: PackedStringArray = []
+	for input: Dictionary in machine.recipe.inputs:
+		var resource_id := str(input.get("resource", ""))
+		var required := float(input.get("amount", 0.0))
+		var available := machine.inventory.get_amount(resource_id)
+		if available + 0.0001 < required:
+			missing.append("%s %.1f / %.1f" % [
+				ResourceRegistry.get_display_name(resource_id),
+				available,
+				required
+			])
+
+	return "waiting for input" if missing.is_empty() else ", ".join(missing)
 
 
 func _is_policy_waiting_for_funds(machine: MachineModel) -> bool:
