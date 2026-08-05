@@ -188,6 +188,7 @@ func _on_simulation_pause_requested(value: bool) -> void:
 		return
 
 	clock.set_paused(value)
+	factory_graph.set_flow_animation_paused(value)
 	_update_simulation_toolbar(true)
 
 

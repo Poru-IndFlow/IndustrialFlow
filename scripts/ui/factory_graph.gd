@@ -28,11 +28,19 @@ var pending_placement_valid := false
 var dragged_route_connection: ConnectionModel
 var dragged_route_point_index := -1
 var route_drag_start_points: Array[Vector2] = []
+var flow_animation_time := 0.0
+var flow_animation_paused := false
 
 const GRID_CELL_SIZE := 32.0
 const ROUTE_NODE_CLEARANCE := 16.0
 const ROUTE_OBSTACLE_CLEARANCE := 12.0
 const ROUTE_OVERLAP_EPSILON := 1.0
+const FLOW_PARTICLE_MIN_RATE := 0.001
+const FLOW_PARTICLE_SPACING := 64.0
+const FLOW_PARTICLE_MIN_SPEED := 42.0
+const FLOW_PARTICLE_MAX_SPEED := 96.0
+const FLOW_PARTICLE_GLOW_RADIUS := 5.0
+const FLOW_PARTICLE_CORE_RADIUS := 2.5
 const GRID_MINOR_COLOR := Color(0.18, 0.20, 0.23, 0.45)
 const GRID_MAJOR_COLOR := Color(0.26, 0.29, 0.33, 0.65)
 const FOOTPRINT_VALID_COLOR := Color(0.20, 0.78, 0.46, 0.42)
@@ -51,7 +59,11 @@ func _ready() -> void:
 	set_process(true)
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	if not is_visible_in_tree():
+		return
+	if not flow_animation_paused:
+		flow_animation_time += delta
 	queue_redraw()
 
 
@@ -129,6 +141,11 @@ func bind_refresh_manager(manager: RefreshManager) -> void:
 
 func bind_history(new_history: EditorHistory) -> void:
 	history = new_history
+
+
+func set_flow_animation_paused(value: bool) -> void:
+	flow_animation_paused = value
+	queue_redraw()
 
 
 func bind_factory(new_factory: FactoryModel) -> void:
@@ -656,6 +673,8 @@ func _draw_routed_connections() -> void:
 				true
 			)
 
+		_draw_flow_particles(connection, route, color)
+
 		if connection == selected_connection:
 			for point: Vector2 in connection.route_points:
 				var screen_point := _world_to_screen(point)
@@ -664,6 +683,84 @@ func _draw_routed_connections() -> void:
 					ThemeManager.COLOR_ACCENT,
 					true
 				)
+
+
+func _draw_flow_particles(
+	connection: ConnectionModel,
+	route: Array[Vector2],
+	line_color: Color
+) -> void:
+	if (
+		flow_animation_paused
+		or not connection.enabled
+		or connection.current_rate_per_second <= FLOW_PARTICLE_MIN_RATE
+		or route.size() < 2
+	):
+		return
+
+	var route_length := _route_length(route)
+	if route_length <= 0.01:
+		return
+
+	var capacity := maxf(connection.capacity_per_second, 0.001)
+	var utilization := clampf(
+		connection.current_rate_per_second / capacity,
+		0.0,
+		1.0
+	)
+	var speed := lerpf(
+		FLOW_PARTICLE_MIN_SPEED,
+		FLOW_PARTICLE_MAX_SPEED,
+		utilization
+	)
+	var distance := fposmod(
+		flow_animation_time * speed,
+		FLOW_PARTICLE_SPACING
+	)
+	var glow_color := line_color
+	glow_color.a = 0.30
+	var core_color := line_color.lightened(0.65)
+	core_color.a = 1.0
+
+	while distance < route_length:
+		var world_point: Vector2 = _point_on_route(route, distance)
+		var screen_point := _world_to_screen(world_point)
+		draw_circle(
+			screen_point,
+			FLOW_PARTICLE_GLOW_RADIUS,
+			glow_color
+		)
+		draw_circle(
+			screen_point,
+			FLOW_PARTICLE_CORE_RADIUS,
+			core_color
+		)
+		distance += FLOW_PARTICLE_SPACING
+
+
+func _route_length(route: Array[Vector2]) -> float:
+	var total := 0.0
+	for index: int in range(route.size() - 1):
+		total += route[index].distance_to(route[index + 1])
+	return total
+
+
+func _point_on_route(route: Array[Vector2], distance: float) -> Vector2:
+	if route.is_empty():
+		return Vector2.ZERO
+
+	var remaining := maxf(distance, 0.0)
+	for index: int in range(route.size() - 1):
+		var start: Vector2 = route[index]
+		var finish: Vector2 = route[index + 1]
+		var segment_length := start.distance_to(finish)
+		if segment_length <= 0.001:
+			continue
+		if remaining <= segment_length:
+			return start.lerp(finish, remaining / segment_length)
+		remaining -= segment_length
+
+	return route[route.size() - 1]
 
 
 func _ensure_connection_route(connection: ConnectionModel) -> void:
