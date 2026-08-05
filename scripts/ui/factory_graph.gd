@@ -25,8 +25,14 @@ var move_start_positions: Dictionary = {}
 var selected_connection: ConnectionModel
 var pending_machine: MachineModel
 var pending_placement_valid := false
+var dragged_route_connection: ConnectionModel
+var dragged_route_point_index := -1
+var route_drag_start_points: Array[Vector2] = []
 
 const GRID_CELL_SIZE := 32.0
+const ROUTE_NODE_CLEARANCE := 16.0
+const ROUTE_OBSTACLE_CLEARANCE := 12.0
+const ROUTE_OVERLAP_EPSILON := 1.0
 const GRID_MINOR_COLOR := Color(0.18, 0.20, 0.23, 0.45)
 const GRID_MAJOR_COLOR := Color(0.26, 0.29, 0.33, 0.65)
 const FOOTPRINT_VALID_COLOR := Color(0.20, 0.78, 0.46, 0.42)
@@ -51,35 +57,70 @@ func _process(_delta: float) -> void:
 
 func _draw() -> void:
 	_draw_plant_grid()
+	_draw_routed_connections()
 
 
 func _gui_input(event: InputEvent) -> void:
+	var motion_event := event as InputEventMouseMotion
+	if motion_event != null and dragged_route_connection != null:
+		_drag_route_point(motion_event.position)
+		accept_event()
+		return
+
 	var mouse_event := event as InputEventMouseButton
+	if mouse_event == null:
+		return
 
 	if (
-		mouse_event == null
-		or not mouse_event.pressed
-		or mouse_event.button_index != MOUSE_BUTTON_LEFT
+		not mouse_event.pressed
+		and mouse_event.button_index == MOUSE_BUTTON_LEFT
+		and dragged_route_connection != null
 	):
-		return
-
-	var graph_connection: Dictionary = (
-		get_closest_connection_at_point(
-			mouse_event.position,
-			8.0
-		)
-	)
-
-	if graph_connection.is_empty():
-		return
-
-	var connection := _get_model_connection(
-		graph_connection
-	)
-
-	if connection != null:
-		_select_connection(connection)
+		_finish_route_drag()
 		accept_event()
+		return
+
+	if not mouse_event.pressed:
+		return
+
+	if mouse_event.button_index == MOUSE_BUTTON_LEFT:
+		var handle := _route_handle_at_screen_point(mouse_event.position)
+		if not handle.is_empty():
+			_begin_route_drag(
+			handle.get("connection") as ConnectionModel,
+				int(handle.get("index", -1))
+			)
+			accept_event()
+			return
+
+		var connection := _connection_at_screen_point(mouse_event.position)
+		if connection == null:
+			return
+
+		_select_connection(connection)
+		if mouse_event.double_click:
+			_add_route_point_at(connection, mouse_event.position)
+		accept_event()
+		return
+
+	if mouse_event.button_index == MOUSE_BUTTON_RIGHT:
+		var handle := _route_handle_at_screen_point(mouse_event.position)
+		if not handle.is_empty():
+			_remove_route_point(
+				handle.get("connection") as ConnectionModel,
+				int(handle.get("index", -1))
+			)
+			accept_event()
+			return
+
+		var connection := _connection_at_screen_point(mouse_event.position)
+		if connection != null:
+			_execute_history_action(
+				"remove %s connection" % _resource_display_name(connection.resource_id),
+				_remove_existing_connection.bind(connection),
+				_add_existing_connection.bind(connection)
+			)
+			accept_event()
 
 
 func bind_refresh_manager(manager: RefreshManager) -> void:
@@ -188,6 +229,9 @@ func select_and_focus_machine(machine_id: String) -> void:
 
 func clear_graph() -> void:
 	selected_connection = null
+	dragged_route_connection = null
+	dragged_route_point_index = -1
+	route_drag_start_points.clear()
 	pending_machine = null
 	pending_placement_valid = false
 	clear_connections()
@@ -557,24 +601,718 @@ func _draw_plant_grid() -> void:
 	if spacing < 4.0:
 		return
 
-	var origin := -scroll_offset * zoom
-	var first_x := fmod(origin.x, spacing)
-	var first_y := fmod(origin.y, spacing)
-	var column := int(floor(scroll_offset.x / GRID_CELL_SIZE))
-	var x := first_x
+	var top_left_world := _screen_to_world(Vector2.ZERO)
+	var column := int(floor(top_left_world.x / GRID_CELL_SIZE))
+	var first_x_world := column * GRID_CELL_SIZE
+	var x := _world_to_screen(Vector2(first_x_world, 0.0)).x
 	while x <= size.x:
 		var color := GRID_MAJOR_COLOR if column % 5 == 0 else GRID_MINOR_COLOR
 		draw_line(Vector2(x, 0.0), Vector2(x, size.y), color, 1.0)
 		x += spacing
 		column += 1
 
-	var row := int(floor(scroll_offset.y / GRID_CELL_SIZE))
-	var y := first_y
+	var row := int(floor(top_left_world.y / GRID_CELL_SIZE))
+	var first_y_world := row * GRID_CELL_SIZE
+	var y := _world_to_screen(Vector2(0.0, first_y_world)).y
 	while y <= size.y:
 		var color := GRID_MAJOR_COLOR if row % 5 == 0 else GRID_MINOR_COLOR
 		draw_line(Vector2(0.0, y), Vector2(size.x, y), color, 1.0)
 		y += spacing
 		row += 1
+
+
+func _draw_routed_connections() -> void:
+	if factory == null:
+		return
+
+	# Migrate every legacy route before generating any replacement. This keeps
+	# one connection from treating another connection's obsolete lane as occupied.
+	for connection: ConnectionModel in factory.connections:
+		if connection.route_version < ConnectionModel.ROUTE_VERSION:
+			connection.route_points.clear()
+			connection.route_version = ConnectionModel.ROUTE_VERSION
+			connection.route_initialized = false
+			connection.route_valid = false
+
+	for connection: ConnectionModel in factory.connections:
+		_ensure_connection_route(connection)
+		var route: Array[Vector2] = _get_connection_route_world(connection)
+		if route.size() < 2:
+			continue
+
+		var color := _resource_color(connection.resource_id)
+		if not connection.enabled:
+			color = ThemeManager.COLOR_TEXT_MUTED
+		if connection == selected_connection:
+			color = color.lightened(0.25)
+		var width := 5.0 if connection == selected_connection else 3.0
+
+		for index: int in range(route.size() - 1):
+			draw_line(
+				_world_to_screen(route[index]),
+				_world_to_screen(route[index + 1]),
+				color,
+				width,
+				true
+			)
+
+		if connection == selected_connection:
+			for point: Vector2 in connection.route_points:
+				var screen_point := _world_to_screen(point)
+				draw_rect(
+					Rect2(screen_point - Vector2(5, 5), Vector2(10, 10)),
+					ThemeManager.COLOR_ACCENT,
+					true
+				)
+
+
+func _ensure_connection_route(connection: ConnectionModel) -> void:
+	if connection == null:
+		return
+
+	if connection.route_version < ConnectionModel.ROUTE_VERSION:
+		connection.route_points.clear()
+		connection.route_version = ConnectionModel.ROUTE_VERSION
+		connection.route_initialized = false
+		connection.route_valid = false
+
+	if connection.route_initialized:
+		return
+
+	var route: Array[Vector2] = _automatic_interior_route(connection)
+	if route.size() >= 2:
+		connection.set_route_points(_intermediate_points(route))
+	else:
+		# Do not run the full lane search every redraw when no legal route exists.
+		connection.route_initialized = true
+		connection.route_valid = false
+
+
+func _get_connection_route_world(
+	connection: ConnectionModel
+) -> Array[Vector2]:
+	var endpoints: Array[Vector2] = _get_connection_endpoints(connection)
+	if endpoints.size() != 2:
+		return []
+	var terminals: Array[Vector2] = _get_connection_clear_terminals(connection)
+	if terminals.size() != 2:
+		return []
+
+	var interior: Array[Vector2] = _get_connection_interior_route(connection)
+	if interior.size() < 2:
+		return []
+
+	var route: Array[Vector2] = [endpoints[0], terminals[0]]
+	for index: int in range(1, interior.size() - 1):
+		route.append(interior[index])
+	route.append(terminals[1])
+	route.append(endpoints[1])
+	return _clean_route(route)
+
+
+func _get_connection_interior_route(
+	connection: ConnectionModel
+) -> Array[Vector2]:
+	var terminals: Array[Vector2] = _get_connection_clear_terminals(connection)
+	if terminals.size() != 2:
+		return []
+
+	if connection.route_initialized:
+		if not connection.route_valid:
+			return []
+		var cached_route: Array[Vector2] = [terminals[0]]
+		for point: Vector2 in connection.route_points:
+			cached_route.append(point)
+		cached_route.append(terminals[1])
+		return _clean_route(cached_route)
+
+	return _automatic_interior_route(connection)
+
+
+func _get_connection_endpoints(
+	connection: ConnectionModel
+) -> Array[Vector2]:
+	var from_node := get_node_or_null(
+		NodePath(connection.from_machine.instance_id)
+	) as GraphNode
+	var to_node := get_node_or_null(
+		NodePath(connection.to_machine.instance_id)
+	) as GraphNode
+	if from_node == null or to_node == null:
+		return []
+
+	var from_key := _port_key(
+		connection.from_machine.instance_id,
+		connection.resource_id
+	)
+	var to_key := _port_key(
+		connection.to_machine.instance_id,
+		connection.resource_id
+	)
+	if not output_ports.has(from_key) or not input_ports.has(to_key):
+		return []
+
+	var from_port := int(output_ports[from_key])
+	var to_port := int(input_ports[to_key])
+	return [
+		from_node.position_offset + from_node.get_output_port_position(from_port),
+		to_node.position_offset + to_node.get_input_port_position(to_port)
+	]
+
+
+func _get_connection_clear_terminals(
+	connection: ConnectionModel
+) -> Array[Vector2]:
+	var endpoints: Array[Vector2] = _get_connection_endpoints(connection)
+	if endpoints.size() != 2:
+		return []
+	var from_rect: Rect2 = _get_footprint_rect(connection.from_machine)
+	var to_rect: Rect2 = _get_footprint_rect(connection.to_machine)
+	return [
+		Vector2(from_rect.end.x + ROUTE_NODE_CLEARANCE, endpoints[0].y),
+		Vector2(to_rect.position.x - ROUTE_NODE_CLEARANCE, endpoints[1].y)
+	]
+
+
+func _automatic_interior_route(connection: ConnectionModel) -> Array[Vector2]:
+	var terminals: Array[Vector2] = _get_connection_clear_terminals(connection)
+	if terminals.size() != 2:
+		return []
+
+	return _auto_route_between(
+		connection,
+		terminals[0],
+		terminals[1]
+	)
+
+
+func _auto_route_between(
+	connection: ConnectionModel,
+	start: Vector2,
+	finish: Vector2
+) -> Array[Vector2]:
+	var direct: Array[Vector2] = [start, finish]
+	if _polyline_clear(connection, direct):
+		return direct
+
+	var horizontal_first: Array[Vector2] = [
+		start,
+		Vector2(finish.x, start.y),
+		finish
+	]
+	if _polyline_clear(connection, horizontal_first):
+		return _clean_route(horizontal_first)
+
+	var vertical_first: Array[Vector2] = [
+		start,
+		Vector2(start.x, finish.y),
+		finish
+	]
+	if _polyline_clear(connection, vertical_first):
+		return _clean_route(vertical_first)
+
+	var middle_x := _snap_scalar((start.x + finish.x) * 0.5)
+	for offset: int in range(0, 65):
+		var x_candidates: Array[float] = [
+			middle_x + offset * GRID_CELL_SIZE,
+			middle_x - offset * GRID_CELL_SIZE
+		]
+		for corridor_x: float in x_candidates:
+			var route_x: Array[Vector2] = [
+				start,
+				Vector2(corridor_x, start.y),
+				Vector2(corridor_x, finish.y),
+				finish
+			]
+			if _polyline_clear(connection, route_x):
+				return _clean_route(route_x)
+
+	var middle_y := _snap_scalar((start.y + finish.y) * 0.5)
+	for offset: int in range(0, 65):
+		var y_candidates: Array[float] = [
+			middle_y + offset * GRID_CELL_SIZE,
+			middle_y - offset * GRID_CELL_SIZE
+		]
+		for corridor_y: float in y_candidates:
+			var route_y: Array[Vector2] = [
+				start,
+				Vector2(start.x, corridor_y),
+				Vector2(finish.x, corridor_y),
+				finish
+			]
+			if _polyline_clear(connection, route_y):
+				return _clean_route(route_y)
+
+	return []
+
+
+func _route_through_points(
+	connection: ConnectionModel,
+	start: Vector2,
+	finish: Vector2,
+	points: Array[Vector2]
+) -> Array[Vector2]:
+	var route: Array[Vector2] = [start]
+	var targets: Array[Vector2] = points.duplicate()
+	targets.append(finish)
+
+	for target: Vector2 in targets:
+		var current: Vector2 = route.back()
+		if is_equal_approx(current.x, target.x) or is_equal_approx(current.y, target.y):
+			var direct_candidate: Array[Vector2] = route.duplicate()
+			direct_candidate.append(target)
+			if not _polyline_clear(connection, direct_candidate):
+				return []
+			route.append(target)
+			continue
+
+		var option_a: Array[Vector2] = route.duplicate()
+		option_a.append(Vector2(target.x, current.y))
+		option_a.append(target)
+		if _polyline_clear(connection, option_a):
+			route = option_a
+			continue
+
+		var option_b: Array[Vector2] = route.duplicate()
+		option_b.append(Vector2(current.x, target.y))
+		option_b.append(target)
+		if _polyline_clear(connection, option_b):
+			route = option_b
+			continue
+
+		var detour: Array[Vector2] = _auto_route_between(connection, current, target)
+		if detour.size() < 2 or not _polyline_clear(connection, detour):
+			return []
+		for index: int in range(1, detour.size()):
+			route.append(detour[index])
+
+	return _clean_route(route)
+
+
+func _polyline_clear(
+	connection: ConnectionModel,
+	route: Array[Vector2]
+) -> bool:
+	if route.size() < 2:
+		return false
+
+	for index: int in range(route.size() - 1):
+		var start: Vector2 = route[index]
+		var finish: Vector2 = route[index + 1]
+		if (
+			not is_equal_approx(start.x, finish.x)
+			and not is_equal_approx(start.y, finish.y)
+		):
+			return false
+
+		for value: Variant in factory.machines.values():
+			var machine := value as MachineModel
+			if machine == null:
+				continue
+			if _segment_intersects_rect(
+				start,
+				finish,
+				_get_footprint_rect(machine).grow(ROUTE_OBSTACLE_CLEARANCE)
+			):
+				return false
+
+		if _segment_overlaps_other_material(connection, start, finish):
+			return false
+
+	return true
+
+
+func _segment_overlaps_other_material(
+	connection: ConnectionModel,
+	start: Vector2,
+	finish: Vector2
+) -> bool:
+	if factory == null:
+		return false
+
+	for other: ConnectionModel in factory.connections:
+		if other == connection or other.resource_id == connection.resource_id:
+			continue
+		var other_route: Array[Vector2] = _get_connection_route_world_unchecked(other)
+		for index: int in range(other_route.size() - 1):
+			if _segments_share_track(
+				start,
+				finish,
+				other_route[index],
+				other_route[index + 1]
+			):
+				return true
+	return false
+
+
+func _get_connection_route_world_unchecked(
+	connection: ConnectionModel
+) -> Array[Vector2]:
+	var endpoints: Array[Vector2] = _get_connection_endpoints(connection)
+	var terminals: Array[Vector2] = _get_connection_clear_terminals(connection)
+	if endpoints.size() != 2 or terminals.size() != 2:
+		return []
+
+	var route: Array[Vector2] = [endpoints[0], terminals[0]]
+	for point: Vector2 in connection.route_points:
+		route.append(point)
+	route.append(terminals[1])
+	route.append(endpoints[1])
+	return _clean_route(route)
+
+
+func _segments_share_track(
+	a_start: Vector2,
+	a_finish: Vector2,
+	b_start: Vector2,
+	b_finish: Vector2
+) -> bool:
+	var a_horizontal := is_equal_approx(a_start.y, a_finish.y)
+	var b_horizontal := is_equal_approx(b_start.y, b_finish.y)
+	var a_vertical := is_equal_approx(a_start.x, a_finish.x)
+	var b_vertical := is_equal_approx(b_start.x, b_finish.x)
+
+	if a_horizontal and b_horizontal:
+		if absf(a_start.y - b_start.y) > ROUTE_OVERLAP_EPSILON:
+			return false
+		return _ranges_overlap_more_than_point(
+			a_start.x,
+			a_finish.x,
+			b_start.x,
+			b_finish.x
+		)
+
+	if a_vertical and b_vertical:
+		if absf(a_start.x - b_start.x) > ROUTE_OVERLAP_EPSILON:
+			return false
+		return _ranges_overlap_more_than_point(
+			a_start.y,
+			a_finish.y,
+			b_start.y,
+			b_finish.y
+		)
+
+	return false
+
+
+func _ranges_overlap_more_than_point(
+	a_start: float,
+	a_finish: float,
+	b_start: float,
+	b_finish: float
+) -> bool:
+	var overlap_start := maxf(minf(a_start, a_finish), minf(b_start, b_finish))
+	var overlap_finish := minf(maxf(a_start, a_finish), maxf(b_start, b_finish))
+	return overlap_finish - overlap_start > ROUTE_OVERLAP_EPSILON
+
+
+func _segment_intersects_rect(
+	start: Vector2,
+	finish: Vector2,
+	rect: Rect2
+) -> bool:
+	if is_equal_approx(start.y, finish.y):
+		var min_x := minf(start.x, finish.x)
+		var max_x := maxf(start.x, finish.x)
+		return (
+			start.y >= rect.position.y
+			and start.y <= rect.end.y
+			and max_x >= rect.position.x
+			and min_x <= rect.end.x
+		)
+
+	if is_equal_approx(start.x, finish.x):
+		var min_y := minf(start.y, finish.y)
+		var max_y := maxf(start.y, finish.y)
+		return (
+			start.x >= rect.position.x
+			and start.x <= rect.end.x
+			and max_y >= rect.position.y
+			and min_y <= rect.end.y
+		)
+
+	return true
+
+
+func _clean_route(route: Array[Vector2]) -> Array[Vector2]:
+	var cleaned: Array[Vector2] = []
+	for point: Vector2 in route:
+		var is_new_point := cleaned.is_empty()
+		if not cleaned.is_empty():
+			var last_point: Vector2 = cleaned.back()
+			is_new_point = last_point.distance_to(point) > 0.01
+		if is_new_point:
+			cleaned.append(point)
+
+	var index := 1
+	while index < cleaned.size() - 1:
+		var previous: Vector2 = cleaned[index - 1]
+		var current: Vector2 = cleaned[index]
+		var following: Vector2 = cleaned[index + 1]
+		if (
+			(is_equal_approx(previous.x, current.x) and is_equal_approx(current.x, following.x))
+			or (is_equal_approx(previous.y, current.y) and is_equal_approx(current.y, following.y))
+		):
+			cleaned.remove_at(index)
+			continue
+		index += 1
+
+	return cleaned
+
+
+func _intermediate_points(route: Array[Vector2]) -> Array[Vector2]:
+	var result: Array[Vector2] = []
+	for index: int in range(1, route.size() - 1):
+		result.append(route[index])
+	return result
+
+
+func _snap_scalar(value: float) -> float:
+	return roundf(value / GRID_CELL_SIZE) * GRID_CELL_SIZE
+
+
+func _world_to_screen(point: Vector2) -> Vector2:
+	var reference_node := _get_view_reference_node()
+	if reference_node != null:
+		return (
+			reference_node.position
+			+ (point - reference_node.position_offset) * zoom
+		)
+
+	return (point - scroll_offset) * zoom
+
+
+func _screen_to_world(point: Vector2) -> Vector2:
+	var reference_node := _get_view_reference_node()
+	if reference_node != null:
+		return (
+			reference_node.position_offset
+			+ (point - reference_node.position) / zoom
+		)
+
+	return point / zoom + scroll_offset
+
+
+func _get_view_reference_node() -> GraphNode:
+	for child: Node in get_children():
+		var graph_node := child as GraphNode
+		if graph_node != null:
+			return graph_node
+
+	return null
+
+
+func _connection_at_screen_point(point: Vector2) -> ConnectionModel:
+	if factory == null:
+		return null
+
+	var closest: ConnectionModel
+	var closest_distance := 9.0
+	for connection: ConnectionModel in factory.connections:
+		var route: Array[Vector2] = _get_connection_route_world(connection)
+		for index: int in range(route.size() - 1):
+			var distance := _point_segment_distance(
+				point,
+				_world_to_screen(route[index]),
+				_world_to_screen(route[index + 1])
+			)
+			if distance < closest_distance:
+				closest_distance = distance
+				closest = connection
+
+	return closest
+
+
+func _route_handle_at_screen_point(point: Vector2) -> Dictionary:
+	if selected_connection == null:
+		return {}
+
+	for index: int in range(selected_connection.route_points.size()):
+		if _world_to_screen(
+			selected_connection.route_points[index]
+		).distance_to(point) <= 8.0:
+			return {
+				"connection": selected_connection,
+				"index": index
+			}
+
+	return {}
+
+
+func _point_segment_distance(
+	point: Vector2,
+	start: Vector2,
+	finish: Vector2
+) -> float:
+	var segment := finish - start
+	var length_squared := segment.length_squared()
+	if length_squared <= 0.0001:
+		return point.distance_to(start)
+
+	var weight := clampf(
+		(point - start).dot(segment) / length_squared,
+		0.0,
+		1.0
+	)
+	return point.distance_to(start + segment * weight)
+
+
+func _closest_route_segment_index(
+	connection: ConnectionModel,
+	screen_point: Vector2
+) -> int:
+	var route: Array[Vector2] = _get_connection_interior_route(connection)
+	var result := -1
+	var closest_distance := INF
+	for index: int in range(route.size() - 1):
+		var distance := _point_segment_distance(
+			screen_point,
+			_world_to_screen(route[index]),
+			_world_to_screen(route[index + 1])
+		)
+		if distance < closest_distance:
+			closest_distance = distance
+			result = index
+	return result
+
+
+func _add_route_point_at(
+	connection: ConnectionModel,
+	screen_point: Vector2
+) -> void:
+	var route: Array[Vector2] = _get_connection_interior_route(connection)
+	if route.size() < 2:
+		return
+
+	var segment_index := _closest_route_segment_index(connection, screen_point)
+	if segment_index < 0:
+		return
+
+	var points: Array[Vector2] = _intermediate_points(route)
+	var snapped := _snap_position(_screen_to_world(screen_point))
+	points.insert(mini(segment_index, points.size()), snapped)
+	var terminals: Array[Vector2] = _get_connection_clear_terminals(connection)
+	if terminals.size() != 2:
+		return
+	var candidate_route: Array[Vector2] = _route_through_points(
+		connection,
+		terminals[0],
+		terminals[1],
+		points
+	)
+	if candidate_route.size() < 2:
+		return
+
+	var final_points: Array[Vector2] = _intermediate_points(candidate_route)
+	var previous_points: Array[Vector2] = connection.route_points.duplicate()
+	_execute_history_action(
+		"add connection route point",
+		_set_connection_route_points.bind(connection, final_points),
+		_set_connection_route_points.bind(connection, previous_points)
+	)
+
+
+func _remove_route_point(
+	connection: ConnectionModel,
+	point_index: int
+) -> void:
+	if point_index < 0 or point_index >= connection.route_points.size():
+		return
+
+	var previous_points: Array[Vector2] = connection.route_points.duplicate()
+	var points: Array[Vector2] = connection.route_points.duplicate()
+	points.remove_at(point_index)
+	var terminals: Array[Vector2] = _get_connection_clear_terminals(connection)
+	if terminals.size() != 2:
+		return
+	var candidate_route: Array[Vector2] = _route_through_points(
+		connection,
+		terminals[0],
+		terminals[1],
+		points
+	)
+	if candidate_route.size() < 2:
+		return
+
+	var final_points: Array[Vector2] = _intermediate_points(candidate_route)
+	_execute_history_action(
+		"remove connection route point",
+		_set_connection_route_points.bind(connection, final_points),
+		_set_connection_route_points.bind(connection, previous_points)
+	)
+
+
+func _begin_route_drag(
+	connection: ConnectionModel,
+	point_index: int
+) -> void:
+	if connection == null or point_index < 0:
+		return
+	_select_connection(connection)
+	dragged_route_connection = connection
+	dragged_route_point_index = point_index
+	route_drag_start_points = connection.route_points.duplicate()
+
+
+func _drag_route_point(screen_point: Vector2) -> void:
+	if (
+		dragged_route_connection == null
+		or dragged_route_point_index < 0
+		or dragged_route_point_index >= dragged_route_connection.route_points.size()
+	):
+		return
+
+	var points: Array[Vector2] = dragged_route_connection.route_points.duplicate()
+	points[dragged_route_point_index] = _snap_position(
+		_screen_to_world(screen_point)
+	)
+	var terminals: Array[Vector2] = _get_connection_clear_terminals(dragged_route_connection)
+	if terminals.size() != 2:
+		return
+	var route: Array[Vector2] = _route_through_points(
+		dragged_route_connection,
+		terminals[0],
+		terminals[1],
+		points
+	)
+	if route.size() < 2:
+		return
+
+	var normalized_points: Array[Vector2] = _intermediate_points(route)
+	dragged_route_connection.set_route_points(normalized_points)
+	queue_redraw()
+
+
+func _finish_route_drag() -> void:
+	if dragged_route_connection == null:
+		return
+
+	var connection: ConnectionModel = dragged_route_connection
+	var previous_points: Array[Vector2] = route_drag_start_points.duplicate()
+	var route: Array[Vector2] = _get_connection_interior_route(connection)
+	var final_points: Array[Vector2] = _intermediate_points(route)
+	connection.set_route_points(final_points)
+
+	dragged_route_connection = null
+	dragged_route_point_index = -1
+	route_drag_start_points.clear()
+
+	if history != null and final_points != previous_points:
+		history.record_completed(
+			"move connection route point",
+			_set_connection_route_points.bind(connection, final_points),
+			_set_connection_route_points.bind(connection, previous_points)
+		)
+
+
+func _set_connection_route_points(
+	connection: ConnectionModel,
+	points: Array[Vector2]
+) -> void:
+	if connection == null:
+		return
+	connection.set_route_points(points)
+	queue_redraw()
 
 
 func _get_footprint_rect(machine: MachineModel) -> Rect2:
@@ -697,27 +1435,9 @@ func _rebuild_connections() -> void:
 
 
 func _draw_connection(connection: ConnectionModel) -> void:
-	var from_key := _port_key(
-		connection.from_machine.instance_id,
-		connection.resource_id
-	)
-	var to_key := _port_key(
-		connection.to_machine.instance_id,
-		connection.resource_id
-	)
-
-	if not output_ports.has(from_key) or not input_ports.has(to_key):
+	if connection == null:
 		return
-
-	connect_node(
-		connection.from_machine.instance_id,
-		int(output_ports[from_key]),
-		connection.to_machine.instance_id,
-		int(input_ports[to_key])
-	)
-
-	if connection == selected_connection:
-		_set_connection_activity(connection, 1.0)
+	queue_redraw()
 
 
 func _get_model_connection(
@@ -764,28 +1484,10 @@ func _select_connection(connection: ConnectionModel) -> void:
 
 
 func _set_connection_activity(
-	connection: ConnectionModel,
-	activity: float
+	_connection: ConnectionModel,
+	_activity: float
 ) -> void:
-	var from_key := _port_key(
-		connection.from_machine.instance_id,
-		connection.resource_id
-	)
-	var to_key := _port_key(
-		connection.to_machine.instance_id,
-		connection.resource_id
-	)
-
-	if not output_ports.has(from_key) or not input_ports.has(to_key):
-		return
-
-	set_connection_activity(
-		connection.from_machine.instance_id,
-		int(output_ports[from_key]),
-		connection.to_machine.instance_id,
-		int(input_ports[to_key]),
-		activity
-	)
+	queue_redraw()
 
 
 func _port_key(machine_id: String, resource_id: String) -> String:

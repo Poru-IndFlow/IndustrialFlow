@@ -1,6 +1,8 @@
 class_name ConnectionModel
 extends RefCounted
 
+const ROUTE_VERSION := 3
+
 var from_machine: MachineModel
 var to_machine: MachineModel
 var resource_id := ""
@@ -9,6 +11,10 @@ var enabled := true
 var last_transferred_amount := 0.0
 var current_rate_per_second := 0.0
 var total_transferred := 0.0
+var route_points: Array[Vector2] = []
+var route_version := ROUTE_VERSION
+var route_initialized := false
+var route_valid := false
 
 func _init(
 	source: MachineModel,
@@ -79,6 +85,15 @@ func set_capacity_per_second(value: float) -> void:
 		from_machine.event_bus.connection_settings_changed.emit(
 			self
 		)
+
+
+func set_route_points(points: Array[Vector2]) -> void:
+	route_points = points.duplicate()
+	route_version = ROUTE_VERSION
+	route_initialized = true
+	route_valid = true
+	if from_machine != null and from_machine.event_bus != null:
+		from_machine.event_bus.connection_settings_changed.emit(self)
 
 
 func _update_flow_telemetry(
