@@ -367,8 +367,8 @@ static func _deserialize_factory(
 		var saved_footprint: Array = entry.get("grid_footprint", [])
 		if saved_footprint.size() >= 2:
 			machine.grid_footprint = Vector2i(
-				maxi(1, int(saved_footprint[0])),
-				maxi(1, int(saved_footprint[1]))
+				maxi(MachineModel.MIN_GRID_FOOTPRINT, int(saved_footprint[0])),
+				maxi(MachineModel.MIN_GRID_FOOTPRINT, int(saved_footprint[1]))
 			)
 		machine.placement_orientation = int(entry.get("placement_orientation", 0))
 		machine.placement_committed = bool(entry.get("placement_committed", true))

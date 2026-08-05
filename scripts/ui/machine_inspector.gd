@@ -10,6 +10,11 @@ var history: EditorHistory
 var name_label: Label
 var id_label: Label
 var state_badge: Label
+var operator_summary: VBoxContainer
+var mode_summary_value_label: Label
+var sp_summary_value_label: Label
+var pv_summary_value_label: Label
+var co_summary_value_label: Label
 var operation_section: VBoxContainer
 var connection_operation_section: VBoxContainer
 var enabled_check_box: CheckBox
@@ -67,7 +72,7 @@ var updating_controls := false
 
 
 func _ready() -> void:
-	dock_title = "Machine Inspector"
+	dock_title = "Machine Control Panel"
 	super._ready()
 
 	var scroll := ScrollContainer.new()
@@ -93,13 +98,34 @@ func _ready() -> void:
 	)
 	root.add_child(state_badge)
 
+	operator_summary = VBoxContainer.new()
+	operator_summary.add_theme_constant_override("separation", 2)
+	operator_summary.visible = false
+	root.add_child(operator_summary)
+
+	var mode_summary_row := UIWidgets.create_labeled_value("MODE", "—")
+	mode_summary_value_label = UIWidgets.get_value_label(mode_summary_row)
+	operator_summary.add_child(mode_summary_row)
+
+	var sp_summary_row := UIWidgets.create_labeled_value("SP", "—")
+	sp_summary_value_label = UIWidgets.get_value_label(sp_summary_row)
+	operator_summary.add_child(sp_summary_row)
+
+	var pv_summary_row := UIWidgets.create_labeled_value("PV", "—")
+	pv_summary_value_label = UIWidgets.get_value_label(pv_summary_row)
+	operator_summary.add_child(pv_summary_row)
+
+	var co_summary_row := UIWidgets.create_labeled_value("CO", "—")
+	co_summary_value_label = UIWidgets.get_value_label(co_summary_row)
+	operator_summary.add_child(co_summary_row)
+
 	root.add_child(HSeparator.new())
 
 	operation_section = VBoxContainer.new()
 	root.add_child(operation_section)
 
 	var operation_title := UIWidgets.create_section_header(
-		"Operation"
+		"Operator Controls"
 	)
 	operation_section.add_child(operation_title)
 
@@ -375,13 +401,14 @@ func _ready() -> void:
 	)
 	maintenance_section.add_child(maintenance_button)
 
-	operation_section.add_child(HSeparator.new())
+	var control_separator := HSeparator.new()
+	operation_section.add_child(control_separator)
 
 	control_section = VBoxContainer.new()
 	operation_section.add_child(control_section)
 
 	control_section.add_child(
-		UIWidgets.create_section_header("Inventory Control")
+		UIWidgets.create_section_header("Automatic Control")
 	)
 
 	var control_mode_row := HBoxContainer.new()
@@ -496,6 +523,10 @@ func _ready() -> void:
 		controller_output_row
 	)
 	control_section.add_child(controller_output_row)
+
+	# Operator controls belong ahead of live performance and maintenance details.
+	operation_section.move_child(control_separator, 3)
+	operation_section.move_child(control_section, 4)
 
 	operation_section.add_child(HSeparator.new())
 
@@ -916,6 +947,7 @@ func _refresh() -> void:
 
 	if selected_machine == null:
 		set_dock_title("Inspector")
+		operator_summary.visible = false
 		operation_section.visible = false
 		connection_operation_section.visible = false
 		input_title.text = "Inputs"
@@ -949,7 +981,8 @@ func _refresh() -> void:
 		_add_empty_label(inventory_list)
 		return
 
-	set_dock_title("Machine Inspector")
+	set_dock_title("Machine Control Panel")
+	operator_summary.visible = true
 	operation_section.visible = true
 	connection_operation_section.visible = false
 	input_title.text = "Inputs"
@@ -1003,6 +1036,7 @@ func _refresh() -> void:
 	_update_power_labels()
 	_update_condition_labels()
 	_update_control_labels()
+	_update_operator_summary()
 	_update_upgrade_section()
 	updating_controls = false
 	UIWidgets.update_status_badge(
@@ -1349,10 +1383,53 @@ func _update_control_labels() -> void:
 	controller_output_value_label.text = "%.0f%%" % (
 		selected_machine.operating_rate * 100.0
 	)
+	_update_operator_summary()
+
+
+func _update_operator_summary() -> void:
+	if (
+		mode_summary_value_label == null
+		or sp_summary_value_label == null
+		or pv_summary_value_label == null
+		or co_summary_value_label == null
+	):
+		return
+
+	if selected_machine == null:
+		mode_summary_value_label.text = "—"
+		sp_summary_value_label.text = "—"
+		pv_summary_value_label.text = "—"
+		co_summary_value_label.text = "—"
+		return
+
+	mode_summary_value_label.text = (
+		"AUTO"
+		if selected_machine.control_mode == MachineModel.ControlMode.AUTOMATIC
+		else "MAN"
+	)
+	co_summary_value_label.text = "%.0f%%" % (
+		selected_machine.operating_rate * 100.0
+	)
+
+	if not selected_machine.supports_inventory_control():
+		sp_summary_value_label.text = "—"
+		pv_summary_value_label.text = "—"
+		return
+
+	var unit := ResourceRegistry.get_unit(selected_machine.control_resource)
+	sp_summary_value_label.text = "%.1f %s" % [
+		selected_machine.inventory_setpoint,
+		unit
+	]
+	pv_summary_value_label.text = "%.1f %s" % [
+		selected_machine.controlled_inventory_amount,
+		unit
+	]
 
 
 func _refresh_connection() -> void:
 	set_dock_title("Connection Inspector")
+	operator_summary.visible = false
 	operation_section.visible = false
 	connection_operation_section.visible = true
 	input_title.text = "Endpoints"
