@@ -16,6 +16,8 @@ var output_ports: Dictionary = {}
 var input_port_resources: Dictionary = {}
 var output_port_resources: Dictionary = {}
 var state_labels: Dictionary = {}
+var name_labels: Dictionary = {}
+var metrics_labels: Dictionary = {}
 var resource_labels: Dictionary = {}
 var dirty_machines: Dictionary = {}
 var selection_notification_pending := false
@@ -27,7 +29,6 @@ var pending_placement_valid := false
 const GRID_CELL_SIZE := 32.0
 const GRID_MINOR_COLOR := Color(0.18, 0.20, 0.23, 0.45)
 const GRID_MAJOR_COLOR := Color(0.26, 0.29, 0.33, 0.65)
-const FOOTPRINT_COMMITTED_COLOR := Color(0.20, 0.48, 0.72, 0.25)
 const FOOTPRINT_VALID_COLOR := Color(0.20, 0.78, 0.46, 0.42)
 const FOOTPRINT_INVALID_COLOR := Color(0.90, 0.25, 0.25, 0.48)
 
@@ -50,7 +51,6 @@ func _process(_delta: float) -> void:
 
 func _draw() -> void:
 	_draw_plant_grid()
-	_draw_machine_footprints()
 
 
 func _gui_input(event: InputEvent) -> void:
@@ -108,6 +108,11 @@ func bind_factory(new_factory: FactoryModel) -> void:
 	factory.event_bus.machine_inventory_changed.connect(
 		_on_machine_inventory_changed
 	)
+	factory.event_bus.machine_settings_changed.connect(_on_machine_state_changed)
+	factory.event_bus.machine_performance_changed.connect(_on_machine_state_changed)
+	factory.event_bus.machine_power_changed.connect(_on_machine_state_changed)
+	factory.event_bus.machine_control_changed.connect(_on_machine_state_changed)
+	factory.event_bus.machine_condition_changed.connect(_on_machine_state_changed)
 	factory.event_bus.connection_added.connect(_on_connection_added)
 	factory.event_bus.connection_removed.connect(_on_connection_removed)
 
@@ -191,6 +196,8 @@ func clear_graph() -> void:
 	input_port_resources.clear()
 	output_port_resources.clear()
 	state_labels.clear()
+	name_labels.clear()
+	metrics_labels.clear()
 	resource_labels.clear()
 	dirty_machines.clear()
 
@@ -206,24 +213,43 @@ func clear_graph() -> void:
 func add_machine_node(machine: MachineModel) -> void:
 	var node := GraphNode.new()
 	node.name = machine.instance_id
-	node.title = (
-		machine.display_name
-		if machine.placement_committed
-		else "%s — PLACING" % machine.display_name
-	)
+	node.title = ""
 	node.position_offset = machine.graph_position
-	node.custom_minimum_size = Vector2(210, 100)
+	var footprint_size := Vector2(machine.get_oriented_footprint()) * GRID_CELL_SIZE
+	node.custom_minimum_size = footprint_size
+	node.size = footprint_size
 	node.draggable = not machine.placement_committed
+	node.resizable = false
+	node.add_theme_constant_override("separation", 0)
+	_apply_machine_node_style(node, machine)
+
+	var name_label := Label.new()
+	name_label.text = machine.display_name
+	name_label.clip_text = true
+	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	name_label.add_theme_font_size_override("font_size", 12)
+	name_label.add_theme_color_override("font_color", ThemeManager.COLOR_TEXT)
+	node.add_child(name_label)
+	name_labels[machine.instance_id] = name_label
 
 	var state_label := Label.new()
-	state_label.text = "State: %s" % _state_text(machine.state)
+	state_label.clip_text = true
+	state_label.add_theme_font_size_override("font_size", 10)
 	node.add_child(state_label)
 	state_labels[machine.instance_id] = state_label
+
+	var metrics_label := Label.new()
+	metrics_label.clip_text = true
+	metrics_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	metrics_label.add_theme_font_size_override("font_size", 10)
+	node.add_child(metrics_label)
+	metrics_labels[machine.instance_id] = metrics_label
+	_update_machine_summary(machine)
 
 	var resources := _get_machine_resources(machine)
 	var input_port := 0
 	var output_port := 0
-	var row := 1
+	var row := 3
 
 	for resource_id: String in resources:
 		var accepts := _has_resource(
@@ -239,6 +265,9 @@ func add_machine_node(machine: MachineModel) -> void:
 		resource_label.horizontal_alignment = (
 			HORIZONTAL_ALIGNMENT_CENTER
 		)
+		resource_label.clip_text = true
+		resource_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		resource_label.add_theme_font_size_override("font_size", 10)
 		node.add_child(resource_label)
 
 		resource_labels[_port_key(
@@ -305,7 +334,123 @@ func add_machine_node(machine: MachineModel) -> void:
 	)
 
 	add_child(node)
+	node.size = footprint_size
 	queue_redraw()
+
+
+func _apply_machine_node_style(node: GraphNode, machine: MachineModel) -> void:
+	var background := ThemeManager.COLOR_SURFACE
+	var border := _state_color(machine.state)
+	if not machine.placement_committed:
+		background = (
+			FOOTPRINT_VALID_COLOR.darkened(0.55)
+			if pending_placement_valid
+			else FOOTPRINT_INVALID_COLOR.darkened(0.45)
+		)
+		border = (
+			ThemeManager.COLOR_SUCCESS
+			if pending_placement_valid
+			else ThemeManager.COLOR_DANGER
+		)
+
+	var normal := _make_node_style(background, border, 2)
+	var selected := _make_node_style(
+		background.lightened(0.05),
+		ThemeManager.COLOR_ACCENT,
+		3
+	)
+	node.add_theme_stylebox_override("panel", normal)
+	node.add_theme_stylebox_override("panel_selected", selected)
+	var titlebar := StyleBoxFlat.new()
+	titlebar.bg_color = Color.TRANSPARENT
+	titlebar.content_margin_left = 0.0
+	titlebar.content_margin_right = 0.0
+	titlebar.content_margin_top = 0.0
+	titlebar.content_margin_bottom = 0.0
+	node.add_theme_stylebox_override("titlebar", titlebar)
+	node.add_theme_stylebox_override("titlebar_selected", titlebar)
+
+
+func _make_node_style(
+	background: Color,
+	border: Color,
+	border_width: int
+) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = background
+	style.border_color = border
+	style.set_border_width_all(border_width)
+	style.set_corner_radius_all(2)
+	style.content_margin_left = 6.0
+	style.content_margin_right = 6.0
+	style.content_margin_top = 3.0
+	style.content_margin_bottom = 3.0
+	return style
+
+
+func _update_machine_summary(machine: MachineModel) -> void:
+	var state_label := state_labels.get(machine.instance_id) as Label
+	var metrics_label := metrics_labels.get(machine.instance_id) as Label
+	var node := get_node_or_null(NodePath(machine.instance_id)) as GraphNode
+	var mode := (
+		"AUTO"
+		if machine.control_mode == MachineModel.ControlMode.AUTOMATIC
+		else "MAN"
+	)
+	var style_needs_update := false
+
+	if state_label != null:
+		var state_text := "%s  •  %s" % [
+			_state_text(machine.state).to_upper(),
+			mode
+		]
+		style_needs_update = state_label.text != state_text
+		state_label.text = state_text
+		state_label.add_theme_color_override(
+			"font_color",
+			_state_color(machine.state)
+		)
+
+	if metrics_label != null:
+		metrics_label.text = _machine_metrics_text(machine)
+
+	if node != null and style_needs_update:
+		_apply_machine_node_style(node, machine)
+
+
+func _machine_metrics_text(machine: MachineModel) -> String:
+	var footprint := machine.get_oriented_footprint()
+	var condition_text := "Cond %.0f%%" % (machine.condition * 100.0)
+	if machine.is_batch_machine():
+		return "%s • %s" % [machine.get_batch_status_text(), condition_text]
+
+	if machine.supports_inventory_control():
+		var unit := ResourceRegistry.get_unit(machine.control_resource)
+		if footprint.x >= 6 and footprint.y >= 6:
+			return "SP %.0f  PV %.0f %s\nCO %.0f%%  •  %s" % [
+				machine.inventory_setpoint,
+				machine.controlled_inventory_amount,
+				unit,
+				machine.operating_rate * 100.0,
+				condition_text
+			]
+		return "PV %.0f • CO %.0f%% • %s" % [
+			machine.controlled_inventory_amount,
+			machine.operating_rate * 100.0,
+			condition_text
+		]
+
+	if footprint.x >= 6 and footprint.y >= 6:
+		return "Rate %.0f%% • Power %.2f PU\n%s" % [
+			machine.actual_operating_rate * 100.0,
+			machine.power_demand,
+			condition_text
+		]
+
+	return "Rate %.0f%% • %s" % [
+		machine.actual_operating_rate * 100.0,
+		condition_text
+	]
 
 
 func commit_pending_placement() -> bool:
@@ -357,7 +502,19 @@ func rotate_pending_placement() -> bool:
 	pending_machine.placement_orientation = (
 		pending_machine.placement_orientation + 90
 	) % 360
+	var node := get_node_or_null(
+		NodePath(pending_machine.instance_id)
+	) as GraphNode
+	if node != null:
+		var footprint_size := (
+			Vector2(pending_machine.get_oriented_footprint())
+			* GRID_CELL_SIZE
+		)
+		node.custom_minimum_size = footprint_size
+		node.size = footprint_size
 	pending_placement_valid = _is_placement_valid(pending_machine)
+	if node != null:
+		_apply_machine_node_style(node, pending_machine)
 	placement_state_changed.emit(
 		true,
 		pending_placement_valid,
@@ -373,7 +530,7 @@ func _commit_machine_placement(machine: MachineModel) -> void:
 		if node != null:
 			node.position_offset = machine.graph_position
 			node.draggable = false
-			node.title = machine.display_name
+			_apply_machine_node_style(node, machine)
 		if pending_machine == machine:
 			pending_machine = null
 			pending_placement_valid = false
@@ -387,7 +544,7 @@ func _uncommit_machine_placement(machine: MachineModel) -> void:
 		var node := get_node_or_null(NodePath(machine.instance_id)) as GraphNode
 		if node != null:
 			node.draggable = true
-			node.title = "%s — PLACING" % machine.display_name
+			_apply_machine_node_style(node, machine)
 		placement_state_changed.emit(
 			true,
 			pending_placement_valid,
@@ -418,27 +575,6 @@ func _draw_plant_grid() -> void:
 		draw_line(Vector2(0.0, y), Vector2(size.x, y), color, 1.0)
 		y += spacing
 		row += 1
-
-
-func _draw_machine_footprints() -> void:
-	if factory == null:
-		return
-
-	for value: Variant in factory.machines.values():
-		var machine := value as MachineModel
-		if machine == null:
-			continue
-
-		var graph_rect := _get_footprint_rect(machine)
-		var screen_rect := Rect2(
-			(graph_rect.position - scroll_offset) * zoom,
-			graph_rect.size * zoom
-		)
-		var color := FOOTPRINT_COMMITTED_COLOR
-		if machine == pending_machine:
-			color = FOOTPRINT_VALID_COLOR if pending_placement_valid else FOOTPRINT_INVALID_COLOR
-		draw_rect(screen_rect, color, true)
-		draw_rect(screen_rect, color.lightened(0.35), false, 2.0)
 
 
 func _get_footprint_rect(machine: MachineModel) -> Rect2:
@@ -712,6 +848,17 @@ func _disconnect_factory_signals() -> void:
 			inventory_callback
 		)
 
+	var summary_signals: Array[Signal] = [
+		factory.event_bus.machine_settings_changed,
+		factory.event_bus.machine_performance_changed,
+		factory.event_bus.machine_power_changed,
+		factory.event_bus.machine_control_changed,
+		factory.event_bus.machine_condition_changed
+	]
+	for summary_signal: Signal in summary_signals:
+		if summary_signal.is_connected(state_callback):
+			summary_signal.disconnect(state_callback)
+
 	if factory.event_bus.connection_added.is_connected(
 		added_callback
 	):
@@ -969,6 +1116,8 @@ func _on_machine_removed(machine_id: String) -> void:
 	_remove_machine_port_data(output_port_resources, machine_id)
 	_remove_machine_port_data(resource_labels, machine_id)
 	state_labels.erase(machine_id)
+	name_labels.erase(machine_id)
+	metrics_labels.erase(machine_id)
 
 	_rebuild_connections()
 	_request_selection_notification()
@@ -1020,15 +1169,7 @@ func _flush_machine_refreshes() -> void:
 		if machine == null:
 			continue
 
-		var state_label := state_labels.get(
-			machine.instance_id
-		) as Label
-
-		if state_label != null:
-			state_label.text = "State: %s" % _state_text(
-				machine.state
-			)
-
+		_update_machine_summary(machine)
 		_update_machine_inventory(machine)
 
 
@@ -1086,6 +1227,7 @@ func _on_node_position_changed(
 	var snapped := _snap_position(node.position_offset)
 	machine.set_graph_position(snapped)
 	pending_placement_valid = _is_placement_valid(machine)
+	_apply_machine_node_style(node, machine)
 	placement_state_changed.emit(
 		true,
 		pending_placement_valid,
@@ -1162,3 +1304,19 @@ func _resource_display_name(resource_id: String) -> String:
 
 func _state_text(state: MachineModel.State) -> String:
 	return MachineModel.State.keys()[state].capitalize()
+
+
+func _state_color(state: MachineModel.State) -> Color:
+	match state:
+		MachineModel.State.RUNNING:
+			return ThemeManager.COLOR_SUCCESS
+		MachineModel.State.BLOCKED_INPUT, MachineModel.State.BLOCKED_OUTPUT:
+			return ThemeManager.COLOR_WARNING
+		MachineModel.State.FAILED:
+			return ThemeManager.COLOR_DANGER
+		MachineModel.State.MAINTENANCE:
+			return ThemeManager.COLOR_ACCENT
+		MachineModel.State.DISABLED:
+			return ThemeManager.COLOR_TEXT_MUTED
+		_:
+			return ThemeManager.COLOR_TEXT
