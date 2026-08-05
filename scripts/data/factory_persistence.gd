@@ -98,7 +98,7 @@ static func _serialize_machines(factory: FactoryModel) -> Array[Dictionary]:
 	for value: Variant in machine_ids:
 		var machine := factory.get_machine(str(value))
 
-		if machine == null:
+		if machine == null or not machine.placement_committed:
 			continue
 
 		result.append({
@@ -108,6 +108,9 @@ static func _serialize_machines(factory: FactoryModel) -> Array[Dictionary]:
 				"x": machine.graph_position.x,
 				"y": machine.graph_position.y
 			},
+			"grid_footprint": [machine.grid_footprint.x, machine.grid_footprint.y],
+			"placement_orientation": machine.placement_orientation,
+			"placement_committed": machine.placement_committed,
 			"enabled": machine.enabled,
 			"operating_rate": machine.operating_rate,
 			"manual_operating_rate": machine.manual_operating_rate,
@@ -151,12 +154,17 @@ static func _serialize_connections(
 	var result: Array[Dictionary] = []
 
 	for connection: ConnectionModel in factory.connections:
+		var route_data: Array[Dictionary] = []
+		for point: Vector2 in connection.route_points:
+			route_data.append({"x": point.x, "y": point.y})
 		result.append({
 			"from": connection.from_machine.instance_id,
 			"to": connection.to_machine.instance_id,
 			"resource": connection.resource_id,
 			"capacity_per_second": connection.capacity_per_second,
-			"enabled": connection.enabled
+			"enabled": connection.enabled,
+			"route_version": connection.route_version,
+			"route_points": route_data
 		})
 
 	return result
@@ -356,6 +364,14 @@ static func _deserialize_factory(
 			0.0,
 			1.5
 		)
+		var saved_footprint: Array = entry.get("grid_footprint", [])
+		if saved_footprint.size() >= 2:
+			machine.grid_footprint = Vector2i(
+				maxi(1, int(saved_footprint[0])),
+				maxi(1, int(saved_footprint[1]))
+			)
+		machine.placement_orientation = int(entry.get("placement_orientation", 0))
+		machine.placement_committed = bool(entry.get("placement_committed", true))
 		machine.state = int(
 			entry.get("state", MachineModel.State.IDLE)
 		)
@@ -425,6 +441,19 @@ static func _deserialize_factory(
 			float(entry.get("capacity_per_second", 1.0))
 		)
 		connection.enabled = bool(entry.get("enabled", true))
+		connection.route_version = int(entry.get("route_version", 1))
+		connection.route_initialized = (
+			connection.route_version >= ConnectionModel.ROUTE_VERSION
+		)
+		connection.route_valid = connection.route_initialized
+		var route_entries: Array = entry.get("route_points", [])
+		for route_value: Variant in route_entries:
+			if route_value is Dictionary:
+				var route_point := route_value as Dictionary
+				connection.route_points.append(Vector2(
+					float(route_point.get("x", 0.0)),
+					float(route_point.get("y", 0.0))
+				))
 
 		if not factory.add_connection(connection):
 			return _load_error(

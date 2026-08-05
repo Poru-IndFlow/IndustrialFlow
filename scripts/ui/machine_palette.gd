@@ -49,10 +49,16 @@ func _ready() -> void:
 				definition_id.capitalize()
 			)
 		)
+		var footprint: Array = definition.get("grid_footprint", [4, 4])
+		var footprint_text := "%d × %d" % [
+			int(footprint[0]),
+			int(footprint[1])
+		]
 		var button := UIWidgets.create_action_button(
-			"%s  ·  $%.0f" % [display_name, purchase_cost],
-			"%s\nPurchase price: $%.2f" % [
+			"%s  ·  %s  ·  $%.0f" % [display_name, footprint_text, purchase_cost],
+			"%s\nFootprint: %s grid cells\nConstruction price: $%.2f" % [
 				str(definition.get("description", "")),
+				footprint_text,
 				purchase_cost
 			]
 		)

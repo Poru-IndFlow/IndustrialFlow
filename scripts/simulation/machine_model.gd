@@ -78,6 +78,9 @@ var batch_count := 0
 var hold_after_batch := false
 var batch_held := false
 var graph_position := Vector2.ZERO
+var grid_footprint := Vector2i(4, 4)
+var placement_orientation := 0
+var placement_committed := true
 var production_rates_per_second: Dictionary = {}
 var consumption_rates_per_second: Dictionary = {}
 var installed_upgrades: Array[String] = []
@@ -106,6 +109,15 @@ static func create(
 	)
 	machine.event_bus = bus
 	machine.graph_position = position
+	var footprint_data: Array = machine_definition.get(
+		"grid_footprint",
+		[4, 4]
+	)
+	if footprint_data.size() >= 2:
+		machine.grid_footprint = Vector2i(
+			maxi(1, int(footprint_data[0])),
+			maxi(1, int(footprint_data[1]))
+		)
 	machine.ramp_up_seconds = maxf(
 		0.001,
 		float(machine_definition.get("ramp_up_seconds", 1.0))
@@ -351,6 +363,12 @@ static func _load_breakdown_chance_curve(
 
 
 func tick(delta_seconds: float) -> void:
+	if not placement_committed:
+		actual_operating_rate = 0.0
+		set_state(State.IDLE)
+		_update_power_demand()
+		return
+
 	if is_under_maintenance():
 		actual_operating_rate = 0.0
 		set_state(State.MAINTENANCE)
@@ -1280,3 +1298,18 @@ func _calculate_window_rates(
 
 func set_graph_position(position: Vector2) -> void:
 	graph_position = position
+
+
+func get_oriented_footprint() -> Vector2i:
+	if placement_orientation % 180 == 90:
+		return Vector2i(grid_footprint.y, grid_footprint.x)
+
+	return grid_footprint
+
+
+func set_placement_committed(value: bool) -> void:
+	if placement_committed == value:
+		return
+
+	placement_committed = value
+	notify_settings_changed()

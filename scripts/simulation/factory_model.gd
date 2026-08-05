@@ -156,6 +156,36 @@ func purchase_machine(machine: MachineModel) -> bool:
 	return true
 
 
+func commit_machine_placement(machine: MachineModel) -> bool:
+	if machine == null or not machines.has(machine.instance_id):
+		return false
+	if machine.placement_committed:
+		return false
+	if not can_afford_machine(machine.definition_id):
+		return false
+
+	machine.set_placement_committed(true)
+	_apply_capital_expense(
+		machine.instance_id,
+		get_machine_purchase_cost(machine.definition_id)
+	)
+	return true
+
+
+func reverse_machine_placement_commit(machine: MachineModel) -> bool:
+	if machine == null or not machines.has(machine.instance_id):
+		return false
+	if not machine.placement_committed:
+		return false
+
+	machine.set_placement_committed(false)
+	_reverse_capital_expense(
+		machine.instance_id,
+		get_machine_purchase_cost(machine.definition_id)
+	)
+	return true
+
+
 func reverse_machine_purchase(machine: MachineModel) -> bool:
 	if machine == null or not remove_machine(machine.instance_id):
 		return false

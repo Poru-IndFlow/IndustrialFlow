@@ -96,6 +96,15 @@ func _ready() -> void:
 	editor_toolbar.delete_requested.connect(
 		_on_delete_requested
 	)
+	editor_toolbar.placement_commit_requested.connect(
+		_on_placement_commit_requested
+	)
+	editor_toolbar.placement_cancel_requested.connect(
+		_on_placement_cancel_requested
+	)
+	editor_toolbar.placement_rotate_requested.connect(
+		_on_placement_rotate_requested
+	)
 	editor_toolbar.simulation_pause_requested.connect(
 		_on_simulation_pause_requested
 	)
@@ -124,6 +133,9 @@ func _ready() -> void:
 	)
 	factory_graph.machines_deleted.connect(
 		_on_machines_deleted
+	)
+	factory_graph.placement_state_changed.connect(
+		_on_placement_state_changed
 	)
 
 	event_bus = EventBus.new()
@@ -176,6 +188,7 @@ func _on_simulation_pause_requested(value: bool) -> void:
 		return
 
 	clock.set_paused(value)
+	factory_graph.set_flow_animation_paused(value)
 	_update_simulation_toolbar(true)
 
 
@@ -211,13 +224,14 @@ func _update_simulation_toolbar(force: bool = false) -> void:
 func _on_machine_requested(definition_id: String) -> void:
 	if factory_graph.request_machine(definition_id):
 		editor_toolbar.show_status(
-			"Purchased %s" % definition_id.replace("_", " ").capitalize(),
-			ThemeManager.COLOR_SUCCESS
+			"Position %s, then choose Construct" % definition_id.replace("_", " ").capitalize(),
+			ThemeManager.COLOR_ACCENT,
+			0.0
 		)
 		return
 
 	editor_toolbar.show_status(
-		"Insufficient cash for %s" % definition_id.replace("_", " ").capitalize(),
+		"Finish the current placement or check available cash for %s" % definition_id.replace("_", " ").capitalize(),
 		ThemeManager.COLOR_DANGER,
 		4.0
 	)
@@ -271,13 +285,41 @@ func _on_delete_requested() -> void:
 		factory_graph.delete_selected_machines()
 
 
+func _on_placement_commit_requested() -> void:
+	if factory_graph.commit_pending_placement():
+		editor_toolbar.show_status(
+			"Machine constructed",
+			ThemeManager.COLOR_SUCCESS
+		)
+
+
+func _on_placement_cancel_requested() -> void:
+	if factory_graph.cancel_pending_placement():
+		editor_toolbar.show_status(
+			"Placement cancelled",
+			ThemeManager.COLOR_TEXT_MUTED
+		)
+
+
+func _on_placement_rotate_requested() -> void:
+	factory_graph.rotate_pending_placement()
+
+
+func _on_placement_state_changed(
+	active: bool,
+	valid: bool,
+	message: String
+) -> void:
+	editor_toolbar.set_placement_state(active, valid, message)
+
+
 func _on_machines_deleted(
 	deleted_count: int,
 	salvage_value: float
 ) -> void:
 	var noun := "machine" if deleted_count == 1 else "machines"
 	editor_toolbar.show_status(
-		"Sold %d %s for $%.2f" % [
+		"Dismantled %d %s for $%.2f salvage" % [
 			deleted_count,
 			noun,
 			salvage_value

@@ -956,7 +956,13 @@ func _refresh() -> void:
 	output_title.text = "Outputs"
 	inventory_title.text = "Inventory"
 	name_label.text = selected_machine.display_name
-	id_label.text = "ID: %s" % selected_machine.instance_id
+	var footprint := selected_machine.get_oriented_footprint()
+	id_label.text = "ID: %s  •  Footprint: %d × %d  •  %s" % [
+		selected_machine.instance_id,
+		footprint.x,
+		footprint.y,
+		"Constructed" if selected_machine.placement_committed else "Awaiting construction"
+	]
 	updating_controls = true
 	enabled_check_box.disabled = false
 	enabled_check_box.button_pressed = selected_machine.enabled
@@ -1427,6 +1433,17 @@ func _refresh_connection() -> void:
 			"Yes" if selected_connection.enabled else "No"
 		)
 	)
+	inventory_list.add_child(
+		UIWidgets.create_labeled_value(
+			"Routing points",
+			str(selected_connection.route_points.size())
+		)
+	)
+	var route_hint := Label.new()
+	route_hint.text = "Double-click line: add point  •  Drag: move point  •  Right-click point: remove  •  Right-click line: disconnect"
+	route_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	route_hint.add_theme_color_override("font_color", ThemeManager.COLOR_TEXT_MUTED)
+	inventory_list.add_child(route_hint)
 
 
 func _on_connection_enabled_toggled(value: bool) -> void:
