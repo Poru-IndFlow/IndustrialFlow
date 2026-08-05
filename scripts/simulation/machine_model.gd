@@ -93,6 +93,7 @@ var _last_condition_notification := 1.0
 var _last_hours_notification := 0.0
 
 const TELEMETRY_WINDOW_SECONDS := 1.0
+const MIN_GRID_FOOTPRINT := 4
 
 static func create(
 	machine_definition: Dictionary,
@@ -115,8 +116,8 @@ static func create(
 	)
 	if footprint_data.size() >= 2:
 		machine.grid_footprint = Vector2i(
-			maxi(1, int(footprint_data[0])),
-			maxi(1, int(footprint_data[1]))
+			maxi(MIN_GRID_FOOTPRINT, int(footprint_data[0])),
+			maxi(MIN_GRID_FOOTPRINT, int(footprint_data[1]))
 		)
 	machine.ramp_up_seconds = maxf(
 		0.001,
@@ -1301,10 +1302,14 @@ func set_graph_position(position: Vector2) -> void:
 
 
 func get_oriented_footprint() -> Vector2i:
+	var footprint := Vector2i(
+		maxi(MIN_GRID_FOOTPRINT, grid_footprint.x),
+		maxi(MIN_GRID_FOOTPRINT, grid_footprint.y)
+	)
 	if placement_orientation % 180 == 90:
-		return Vector2i(grid_footprint.y, grid_footprint.x)
+		return Vector2i(footprint.y, footprint.x)
 
-	return grid_footprint
+	return footprint
 
 
 func set_placement_committed(value: bool) -> void:

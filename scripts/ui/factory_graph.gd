@@ -495,10 +495,11 @@ func _machine_metrics_text(machine: MachineModel) -> String:
 				machine.operating_rate * 100.0,
 				condition_text
 			]
-		return "PV %.0f • CO %.0f%% • %s" % [
+		return "SP%.0f PV%.0f\nCO%.0f%% C%.0f%%" % [
+			machine.inventory_setpoint,
 			machine.controlled_inventory_amount,
 			machine.operating_rate * 100.0,
-			condition_text
+			machine.condition * 100.0
 		]
 
 	if footprint.x >= 6 and footprint.y >= 6:

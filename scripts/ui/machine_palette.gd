@@ -51,8 +51,8 @@ func _ready() -> void:
 		)
 		var footprint: Array = definition.get("grid_footprint", [4, 4])
 		var footprint_text := "%d × %d" % [
-			int(footprint[0]),
-			int(footprint[1])
+			maxi(MachineModel.MIN_GRID_FOOTPRINT, int(footprint[0])),
+			maxi(MachineModel.MIN_GRID_FOOTPRINT, int(footprint[1]))
 		]
 		var button := UIWidgets.create_action_button(
 			"%s  ·  %s  ·  $%.0f" % [display_name, footprint_text, purchase_cost],
