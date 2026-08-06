@@ -16,8 +16,9 @@ const ALARM_VIEW_ACTIVE_HISTORY := 2
 const ALARM_VIEW_CLEARED_HISTORY := 3
 const ALARM_VIEW_ACKNOWLEDGED_HISTORY := 4
 const ALARM_VIEW_CRITICAL_HISTORY := 5
-const SCADA_NODE_FOOTPRINT := Vector2(245, 190)
-const SCADA_LAYOUT_STEP := Vector2(270, 215)
+const SCADA_NODE_FOOTPRINT := Vector2(270, 190)
+const SCADA_LAYOUT_STEP := Vector2(360, 250)
+const SCADA_UTILITY_BUS_RESERVE := 160.0
 
 var factory: FactoryModel
 var input_ports: Dictionary = {}
@@ -93,6 +94,7 @@ func bind_factory(new_factory: FactoryModel) -> void:
 	for value: Variant in factory.machines.values():
 		_add_machine_node(value as MachineModel)
 
+	_layout_scada_nodes()
 	_rebuild_connections()
 	_update_system_status()
 	_refresh_alarms()
@@ -233,21 +235,24 @@ func _add_machine_node(machine: MachineModel) -> void:
 	var node := GraphNode.new()
 	node.name = machine.instance_id
 	node.title = machine.display_name
-	node.position_offset = _find_scada_node_position(machine)
-	node.custom_minimum_size = Vector2(245, 165 if machine.is_batch_machine() else 145)
+	node.position_offset = Vector2.ZERO
+	node.custom_minimum_size = Vector2(270, 175 if machine.is_batch_machine() else 155)
 	node.draggable = false
+	_apply_scada_node_style(node, machine)
 
 	var state_label := Label.new()
-	state_label.custom_minimum_size = Vector2(215, 0)
+	state_label.custom_minimum_size = Vector2(240, 0)
 	state_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	state_label.add_theme_font_size_override("font_size", 12)
 	node.add_child(state_label)
 	state_labels[machine.instance_id] = state_label
 
 	var metrics_label := Label.new()
-	metrics_label.custom_minimum_size = Vector2(215, 0)
+	metrics_label.custom_minimum_size = Vector2(240, 0)
 	metrics_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	metrics_label.clip_text = true
 	metrics_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	metrics_label.add_theme_font_size_override("font_size", 11)
 	node.add_child(metrics_label)
 	metrics_labels[machine.instance_id] = metrics_label
 
@@ -255,6 +260,7 @@ func _add_machine_node(machine: MachineModel) -> void:
 	var input_port := 0
 	var output_port := 0
 	var row := 2
+	var output_resource_ids: Array[String] = []
 
 	for resource_id: String in resources:
 		var accepts := _has_resource(
@@ -266,10 +272,11 @@ func _add_machine_node(machine: MachineModel) -> void:
 			resource_id
 		)
 		var resource_label := Label.new()
-		resource_label.custom_minimum_size = Vector2(215, 0)
+		resource_label.custom_minimum_size = Vector2(240, 0)
 		resource_label.clip_text = true
 		resource_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		resource_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		resource_label.add_theme_font_size_override("font_size", 11)
 		node.add_child(resource_label)
 		resource_labels[_port_key(machine.instance_id, resource_id)] = resource_label
 		var color := ResourceRegistry.get_colour(resource_id)
@@ -290,69 +297,109 @@ func _add_machine_node(machine: MachineModel) -> void:
 
 		if produces:
 			output_ports[_port_key(machine.instance_id, resource_id)] = output_port
+			output_resource_ids.append(resource_id)
 			output_port += 1
 
 		row += 1
+
+	node.set_meta("scada_output_resources", output_resource_ids)
 
 	node.node_selected.connect(_on_node_selected.bind(machine))
 	process_graph.add_child(node)
 	_update_machine_node(machine)
 
 
-func _find_scada_node_position(machine: MachineModel) -> Vector2:
-	var base_position := machine.graph_position
+func _layout_scada_nodes() -> void:
+	if factory == null or factory.machines.is_empty():
+		return
 
-	if _is_scada_position_free(base_position):
-		scada_node_positions[machine.instance_id] = base_position
-		return base_position
+	var indegree: Dictionary = {}
+	var depth_by_id: Dictionary = {}
+	var outgoing: Dictionary = {}
+	var queue: Array[String] = []
 
-	for ring in range(1, 33):
-		var offsets: Array[Vector2] = [
-			Vector2(ring, 0),
-			Vector2(0, ring),
-			Vector2(-ring, 0),
-			Vector2(0, -ring),
-			Vector2(ring, ring),
-			Vector2(-ring, ring),
-			Vector2(-ring, -ring),
-			Vector2(ring, -ring)
-		]
+	for value: Variant in factory.machines.values():
+		var machine := value as MachineModel
+		if machine == null:
+			continue
+		indegree[machine.instance_id] = 0
+		depth_by_id[machine.instance_id] = 0
+		outgoing[machine.instance_id] = []
 
-		for offset: Vector2 in offsets:
-			var candidate := base_position + Vector2(
-				offset.x * SCADA_LAYOUT_STEP.x,
-				offset.y * SCADA_LAYOUT_STEP.y
+	for connection: ConnectionModel in factory.connections:
+		if connection.from_machine == null or connection.to_machine == null:
+			continue
+		var from_id := connection.from_machine.instance_id
+		var to_id := connection.to_machine.instance_id
+		if not indegree.has(from_id) or not indegree.has(to_id):
+			continue
+		var targets: Array = outgoing[from_id]
+		if not targets.has(to_id):
+			indegree[to_id] = int(indegree[to_id]) + 1
+			targets.append(to_id)
+			outgoing[from_id] = targets
+
+	for value: Variant in factory.machines.values():
+		var machine := value as MachineModel
+		if machine != null and int(indegree.get(machine.instance_id, 0)) == 0:
+			queue.append(machine.instance_id)
+
+	var queue_index := 0
+	while queue_index < queue.size():
+		var machine_id: String = queue[queue_index]
+		queue_index += 1
+		var current_depth := int(depth_by_id.get(machine_id, 0))
+		var targets: Array = outgoing.get(machine_id, [])
+		for target_value: Variant in targets:
+			var target_id := str(target_value)
+			depth_by_id[target_id] = maxi(
+				int(depth_by_id.get(target_id, 0)),
+				current_depth + 1
 			)
+			indegree[target_id] = int(indegree[target_id]) - 1
+			if int(indegree[target_id]) == 0:
+				queue.append(target_id)
 
-			if _is_scada_position_free(candidate):
-				scada_node_positions[machine.instance_id] = candidate
-				return candidate
+	var max_depth := 0
+	for value: Variant in depth_by_id.values():
+		max_depth = maxi(max_depth, int(value))
 
-	var fallback := base_position + Vector2(
-		0.0,
-		float(scada_node_positions.size()) * SCADA_LAYOUT_STEP.y
-	)
-	scada_node_positions[machine.instance_id] = fallback
-	return fallback
+	# Any machine left in a cycle gets its own final column rather than overlapping.
+	for value: Variant in factory.machines.values():
+		var machine := value as MachineModel
+		if machine != null and int(indegree.get(machine.instance_id, 0)) > 0:
+			max_depth += 1
+			depth_by_id[machine.instance_id] = max_depth
 
+	var columns: Dictionary = {}
+	for value: Variant in factory.machines.values():
+		var machine := value as MachineModel
+		if machine == null:
+			continue
+		var depth := int(depth_by_id.get(machine.instance_id, 0))
+		var column: Array = columns.get(depth, [])
+		column.append(machine)
+		columns[depth] = column
 
-func _is_scada_position_free(candidate: Vector2) -> bool:
-	var candidate_rect := Rect2(
-		candidate,
-		SCADA_NODE_FOOTPRINT
-	).grow(10.0)
-
-	for value: Variant in scada_node_positions.values():
-		var occupied_position: Vector2 = value
-		var occupied_rect := Rect2(
-			occupied_position,
-			SCADA_NODE_FOOTPRINT
-		).grow(10.0)
-
-		if candidate_rect.intersects(occupied_rect):
-			return false
-
-	return true
+	scada_node_positions.clear()
+	for depth_value: Variant in columns.keys():
+		var depth := int(depth_value)
+		var column: Array = columns[depth]
+		var row_count := column.size()
+		for row: int in range(row_count):
+			var machine := column[row] as MachineModel
+			if machine == null:
+				continue
+			var position := Vector2(
+				float(depth) * SCADA_LAYOUT_STEP.x,
+				(float(row) - (float(row_count) - 1.0) * 0.5) * SCADA_LAYOUT_STEP.y
+			)
+			scada_node_positions[machine.instance_id] = position
+			var node := process_graph.get_node_or_null(
+				NodePath(machine.instance_id)
+			) as GraphNode
+			if node != null:
+				node.position_offset = position
 
 
 func _update_machine_node(machine: MachineModel) -> void:
@@ -361,26 +408,34 @@ func _update_machine_node(machine: MachineModel) -> void:
 
 	var state_label := state_labels.get(machine.instance_id) as Label
 	var metrics_label := metrics_labels.get(machine.instance_id) as Label
+	var node := process_graph.get_node_or_null(NodePath(machine.instance_id)) as GraphNode
+	var mode := (
+		"AUTO"
+		if machine.control_mode == MachineModel.ControlMode.AUTOMATIC
+		else "MAN"
+	)
 
 	if state_label != null:
-		state_label.text = _state_text(machine.state)
+		state_label.text = "%s  •  %s" % [
+			_state_text(machine.state).to_upper(),
+			mode
+		]
 		state_label.add_theme_color_override(
 			"font_color",
 			_state_color(machine.state)
 		)
 
 	if metrics_label != null:
-		metrics_label.text = "Rate %.0f%%  •  Power %.2f PU\nCondition %.1f%%" % [
-			machine.actual_operating_rate * 100.0,
-			machine.power_demand,
-			machine.condition * 100.0
-		]
+		metrics_label.text = _scada_metrics_text(machine)
 		if machine.is_batch_machine():
 			metrics_label.text += "\n%s  •  %.0f%%  •  %d complete" % [
 				machine.get_batch_status_text(),
 				machine.get_batch_progress_ratio() * 100.0,
 				machine.batch_count
 			]
+
+	if node != null:
+		_apply_scada_node_style(node, machine)
 
 	for resource_id: String in _get_machine_resources(machine):
 		var label := resource_labels.get(
@@ -393,6 +448,44 @@ func _update_machine_node(machine: MachineModel) -> void:
 				machine.inventory.get_amount(resource_id),
 				ResourceRegistry.get_unit(resource_id)
 			]
+
+
+func _scada_metrics_text(machine: MachineModel) -> String:
+	var condition_text := "Condition %.0f%%" % (machine.condition * 100.0)
+	if machine.supports_inventory_control():
+		var unit := ResourceRegistry.get_unit(machine.control_resource)
+		return "SP %.0f  •  PV %.0f %s\nCO %.0f%%  •  Power %.2f PU\n%s" % [
+			machine.inventory_setpoint,
+			machine.controlled_inventory_amount,
+			unit,
+			machine.operating_rate * 100.0,
+			machine.power_demand,
+			condition_text
+		]
+
+	return "Rate %.0f%%  •  Power %.2f PU\n%s" % [
+		machine.actual_operating_rate * 100.0,
+		machine.power_demand,
+		condition_text
+	]
+
+
+func _apply_scada_node_style(node: GraphNode, machine: MachineModel) -> void:
+	var normal := StyleBoxFlat.new()
+	normal.bg_color = ThemeManager.COLOR_SURFACE
+	normal.border_color = _state_color(machine.state)
+	normal.set_border_width_all(2)
+	normal.set_corner_radius_all(3)
+	normal.content_margin_left = 8.0
+	normal.content_margin_right = 8.0
+	normal.content_margin_top = 5.0
+	normal.content_margin_bottom = 5.0
+
+	var selected := normal.duplicate() as StyleBoxFlat
+	selected.border_color = ThemeManager.COLOR_ACCENT
+	selected.set_border_width_all(3)
+	node.add_theme_stylebox_override("panel", normal)
+	node.add_theme_stylebox_override("panel_selected", selected)
 
 
 func _rebuild_connections() -> void:
@@ -488,6 +581,11 @@ func _fit_plant() -> void:
 	if first:
 		return
 
+	# Leave a dedicated corridor below the process equipment for the
+	# Water, Steam and Gas buses used by ScadaGraph.
+	bounds = bounds.expand(
+		Vector2(bounds.end.x, bounds.end.y + SCADA_UTILITY_BUS_RESERVE)
+	)
 	bounds = bounds.grow(80.0)
 	var available := process_graph.size - Vector2(80, 80)
 	var target_zoom := minf(
@@ -1254,6 +1352,8 @@ func _state_color(state: MachineModel.State) -> Color:
 
 func _on_machine_added(machine: MachineModel) -> void:
 	_add_machine_node(machine)
+	_layout_scada_nodes()
+	_rebuild_connections()
 	_update_system_status()
 	_refresh_alarms()
 	call_deferred("_fit_plant")
@@ -1272,6 +1372,7 @@ func _on_machine_removed(machine_id: String) -> void:
 		selected_machine = null
 		_update_operator_controls()
 
+	_layout_scada_nodes()
 	_rebuild_connections()
 	_update_system_status()
 	_refresh_alarms()
@@ -1299,12 +1400,16 @@ func _on_economy_changed(_value: Variant) -> void:
 	_refresh_alarms()
 
 
-func _on_connection_added(connection: ConnectionModel) -> void:
-	_draw_connection(connection)
+func _on_connection_added(_connection: ConnectionModel) -> void:
+	_layout_scada_nodes()
+	_rebuild_connections()
+	call_deferred("_fit_plant")
 
 
 func _on_connection_removed(_connection: ConnectionModel) -> void:
+	_layout_scada_nodes()
 	_rebuild_connections()
+	call_deferred("_fit_plant")
 
 
 func _on_connection_changed(connection: ConnectionModel) -> void:
