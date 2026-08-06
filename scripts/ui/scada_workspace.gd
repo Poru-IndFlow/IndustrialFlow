@@ -18,6 +18,7 @@ const ALARM_VIEW_ACKNOWLEDGED_HISTORY := 4
 const ALARM_VIEW_CRITICAL_HISTORY := 5
 const SCADA_NODE_FOOTPRINT := Vector2(270, 190)
 const SCADA_LAYOUT_STEP := Vector2(360, 250)
+const SCADA_UTILITY_COLUMN_OFFSET := 620.0
 const SCADA_UTILITY_BUS_RESERVE := 160.0
 
 var factory: FactoryModel
@@ -313,21 +314,34 @@ func _layout_scada_nodes() -> void:
 	if factory == null or factory.machines.is_empty():
 		return
 
+	var process_machines: Array[MachineModel] = []
+	var utility_machine_ids: Array[String] = []
+	for value: Variant in factory.machines.values():
+		var machine := value as MachineModel
+		if machine == null:
+			continue
+		if _is_scada_utility(machine):
+			utility_machine_ids.append(machine.instance_id)
+		else:
+			process_machines.append(machine)
+
 	var indegree: Dictionary = {}
 	var depth_by_id: Dictionary = {}
 	var outgoing: Dictionary = {}
 	var queue: Array[String] = []
 
-	for value: Variant in factory.machines.values():
-		var machine := value as MachineModel
-		if machine == null:
-			continue
+	for machine: MachineModel in process_machines:
 		indegree[machine.instance_id] = 0
 		depth_by_id[machine.instance_id] = 0
 		outgoing[machine.instance_id] = []
 
 	for connection: ConnectionModel in factory.connections:
 		if connection.from_machine == null or connection.to_machine == null:
+			continue
+		if (
+			_is_scada_utility(connection.from_machine)
+			or _is_scada_utility(connection.to_machine)
+		):
 			continue
 		var from_id := connection.from_machine.instance_id
 		var to_id := connection.to_machine.instance_id
@@ -339,9 +353,8 @@ func _layout_scada_nodes() -> void:
 			targets.append(to_id)
 			outgoing[from_id] = targets
 
-	for value: Variant in factory.machines.values():
-		var machine := value as MachineModel
-		if machine != null and int(indegree.get(machine.instance_id, 0)) == 0:
+	for machine: MachineModel in process_machines:
+		if int(indegree.get(machine.instance_id, 0)) == 0:
 			queue.append(machine.instance_id)
 
 	var queue_index := 0
@@ -365,25 +378,26 @@ func _layout_scada_nodes() -> void:
 		max_depth = maxi(max_depth, int(value))
 
 	# Any machine left in a cycle gets its own final column rather than overlapping.
-	for value: Variant in factory.machines.values():
-		var machine := value as MachineModel
-		if machine != null and int(indegree.get(machine.instance_id, 0)) > 0:
+	for machine: MachineModel in process_machines:
+		if int(indegree.get(machine.instance_id, 0)) > 0:
 			max_depth += 1
 			depth_by_id[machine.instance_id] = max_depth
 
 	var columns: Dictionary = {}
-	for value: Variant in factory.machines.values():
-		var machine := value as MachineModel
-		if machine == null:
-			continue
+	var minimum_depth := 2147483647
+	for machine: MachineModel in process_machines:
 		var depth := int(depth_by_id.get(machine.instance_id, 0))
+		minimum_depth = mini(minimum_depth, depth)
 		var column: Array = columns.get(depth, [])
 		column.append(machine)
 		columns[depth] = column
 
 	scada_node_positions.clear()
+	if minimum_depth == 2147483647:
+		minimum_depth = 0
 	for depth_value: Variant in columns.keys():
 		var depth := int(depth_value)
+		var display_depth := depth - minimum_depth
 		var column: Array = columns[depth]
 		var row_count := column.size()
 		for row: int in range(row_count):
@@ -391,7 +405,7 @@ func _layout_scada_nodes() -> void:
 			if machine == null:
 				continue
 			var position := Vector2(
-				float(depth) * SCADA_LAYOUT_STEP.x,
+				float(display_depth) * SCADA_LAYOUT_STEP.x,
 				(float(row) - (float(row_count) - 1.0) * 0.5) * SCADA_LAYOUT_STEP.y
 			)
 			scada_node_positions[machine.instance_id] = position
@@ -400,6 +414,31 @@ func _layout_scada_nodes() -> void:
 			) as GraphNode
 			if node != null:
 				node.position_offset = position
+
+	# Utilities deliberately live in a separate service column to the left of
+	# the production train. Their buses then feed the process area from below.
+	utility_machine_ids.sort()
+	var utility_count := utility_machine_ids.size()
+	for row: int in range(utility_count):
+		var machine := factory.get_machine(utility_machine_ids[row])
+		if machine == null:
+			continue
+		var position := Vector2(
+			-SCADA_UTILITY_COLUMN_OFFSET,
+			(float(row) - (float(utility_count) - 1.0) * 0.5) * SCADA_LAYOUT_STEP.y
+		)
+		scada_node_positions[machine.instance_id] = position
+		var node := process_graph.get_node_or_null(
+			NodePath(machine.instance_id)
+		) as GraphNode
+		if node != null:
+			node.position_offset = position
+
+
+func _is_scada_utility(machine: MachineModel) -> bool:
+	if machine == null:
+		return false
+	return str(machine.definition.get("category", "")).to_lower() == "utility"
 
 
 func _update_machine_node(machine: MachineModel) -> void:
