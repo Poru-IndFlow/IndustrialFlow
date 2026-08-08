@@ -1154,6 +1154,44 @@ func _update_upgrade_section() -> void:
 	)
 	upgrade_section.visible = not definitions.is_empty()
 
+	if definitions.is_empty():
+		return
+
+	var installed_count := 0
+
+	for definition: Dictionary in definitions:
+		if selected_machine.has_upgrade(str(definition.get("id", ""))):
+			installed_count += 1
+
+	var summary := Label.new()
+	summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	summary.modulate = ThemeManager.COLOR_TEXT_MUTED
+
+	if installed_count <= 0:
+		summary.text = "0 / %d upgrades installed on this machine" % (
+			definitions.size()
+		)
+	else:
+		summary.text = (
+			"%d / %d upgrades installed · Cumulative effect\n"
+			+ "Output %.1f%% · Power %.1f%% · Wear %.1f%% of base"
+		) % [
+			installed_count,
+			definitions.size(),
+			selected_machine.get_upgrade_effect_multiplier(
+				"output_multiplier"
+			) * 100.0,
+			selected_machine.get_upgrade_effect_multiplier(
+				"power_multiplier"
+			) * 100.0,
+			selected_machine.get_upgrade_effect_multiplier(
+				"wear_multiplier"
+			) * 100.0
+		]
+
+	upgrade_list.add_child(summary)
+	upgrade_list.add_child(HSeparator.new())
+
 	for definition: Dictionary in definitions:
 		var research_id := str(definition.get("id", ""))
 		var installed := selected_machine.has_upgrade(research_id)

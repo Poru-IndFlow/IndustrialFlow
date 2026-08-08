@@ -658,6 +658,10 @@ func restore_installed_upgrades(values: Array) -> void:
 		installed_upgrades.append(research_id)
 
 
+func get_upgrade_effect_multiplier(effect_id: String) -> float:
+	return _get_upgrade_effect_multiplier(effect_id)
+
+
 func _get_upgrade_effect_multiplier(effect_id: String) -> float:
 	var multiplier := 1.0
 

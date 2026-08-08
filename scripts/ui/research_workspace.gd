@@ -187,6 +187,51 @@ func _add_research_card(definition: Dictionary) -> void:
 	details.modulate = ThemeManager.COLOR_TEXT_MUTED
 	content.add_child(details)
 
+	if researched and factory != null:
+		var eligible_count := 0
+		var installed_count := 0
+		var installing_count := 0
+
+		for value: Variant in factory.machines.values():
+			var machine := value as MachineModel
+
+			if (
+				machine == null
+				or not machine.placement_committed
+				or machine.definition_id != target_id
+			):
+				continue
+
+			eligible_count += 1
+
+			if machine.has_upgrade(research_id):
+				installed_count += 1
+			elif machine.is_installing_upgrade(research_id):
+				installing_count += 1
+
+		var fleet_label := Label.new()
+		fleet_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+
+		if eligible_count <= 0:
+			fleet_label.text = "Fleet installation: no constructed %s machines" % (
+				target_id.replace("_", " ").capitalize()
+			)
+		else:
+			fleet_label.text = "Fleet installation: %d / %d installed" % [
+				installed_count,
+				eligible_count
+			]
+
+			if installing_count > 0:
+				fleet_label.text += " · %d installing" % installing_count
+
+		fleet_label.modulate = (
+			ThemeManager.COLOR_SUCCESS
+			if eligible_count > 0 and installed_count == eligible_count
+			else ThemeManager.COLOR_TEXT_MUTED
+		)
+		content.add_child(fleet_label)
+
 	if researching:
 		var progress := ProgressBar.new()
 		progress.min_value = 0.0
