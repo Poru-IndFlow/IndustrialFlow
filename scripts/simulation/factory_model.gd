@@ -31,6 +31,8 @@ var machine_economy: Dictionary = {}
 var resource_economy: Dictionary = {}
 var economy_samples: Array[Dictionary] = []
 var researched_ideas: Dictionary = {}
+var active_research_id := ""
+var research_elapsed_seconds := 0.0
 var production_targets: Array[Dictionary] = []
 var _next_production_target_id := 1
 var customer_orders: Array[Dictionary] = []
@@ -40,6 +42,7 @@ var _revenue_in_window := 0.0
 var _expenses_in_window := 0.0
 var _economy_elapsed := 0.0
 var _economy_sample_time := 0.0
+var _last_research_progress_second := -1
 
 func _init(bus: EventBus) -> void:
 	event_bus = bus
@@ -269,6 +272,7 @@ func find_connection(
 
 func tick(delta_seconds: float) -> void:
 	_update_inventory_controllers(delta_seconds)
+	_advance_research(delta_seconds)
 
 	for connection: ConnectionModel in connections:
 		connection.tick(delta_seconds)
@@ -792,28 +796,112 @@ func clear_economy_samples() -> void:
 
 
 func serialize_research() -> Dictionary:
-	return researched_ideas.duplicate(true)
+	return {
+		"completed": researched_ideas.duplicate(true),
+		"active_id": active_research_id,
+		"elapsed_seconds": research_elapsed_seconds
+	}
 
 
 func restore_research(data: Dictionary) -> void:
 	researched_ideas.clear()
+	active_research_id = ""
+	research_elapsed_seconds = 0.0
+	_last_research_progress_second = -1
+	var completed_data := data
 
-	for key: Variant in data.keys():
+	if data.has("completed"):
+		completed_data = data.get("completed", {}) as Dictionary
+
+	for key: Variant in completed_data.keys():
 		var research_id := str(key)
 
 		if (
-			bool(data.get(key, false))
+			bool(completed_data.get(key, false))
 			and not ResearchRegistry.get_definition(research_id).is_empty()
 		):
 			researched_ideas[research_id] = true
+
+	if not data.has("completed"):
+		return
+
+	var saved_active_id := str(data.get("active_id", ""))
+
+	if (
+		saved_active_id.is_empty()
+		or is_researched(saved_active_id)
+		or ResearchRegistry.get_definition(saved_active_id).is_empty()
+	):
+		return
+
+	var duration := get_research_duration_seconds(saved_active_id)
+	var saved_elapsed := clampf(
+		float(data.get("elapsed_seconds", 0.0)),
+		0.0,
+		duration
+	)
+
+	if saved_elapsed >= duration:
+		researched_ideas[saved_active_id] = true
+		return
+
+	active_research_id = saved_active_id
+	research_elapsed_seconds = saved_elapsed
+	_last_research_progress_second = floori(saved_elapsed)
 
 
 func is_researched(research_id: String) -> bool:
 	return bool(researched_ideas.get(research_id, false))
 
 
-func can_research(research_id: String) -> bool:
+func is_researching(research_id: String) -> bool:
+	return (
+		not research_id.is_empty()
+		and active_research_id == research_id
+	)
+
+
+func has_active_research() -> bool:
+	return not active_research_id.is_empty()
+
+
+func get_research_duration_seconds(research_id: String) -> float:
+	var definition := ResearchRegistry.get_definition(research_id)
+	return maxf(
+		1.0,
+		float(definition.get("research_duration_seconds", 60.0))
+	)
+
+
+func get_research_progress(research_id: String) -> float:
 	if is_researched(research_id):
+		return 1.0
+	if not is_researching(research_id):
+		return 0.0
+
+	return clampf(
+		research_elapsed_seconds
+		/ get_research_duration_seconds(research_id),
+		0.0,
+		1.0
+	)
+
+
+func get_research_remaining_seconds(research_id: String) -> float:
+	if is_researched(research_id):
+		return 0.0
+	if not is_researching(research_id):
+		return get_research_duration_seconds(research_id)
+
+	return maxf(
+		get_research_duration_seconds(research_id)
+		- research_elapsed_seconds,
+		0.0
+	)
+
+
+func can_research(research_id: String) -> bool:
+	if is_researched(research_id) or has_active_research():
 		return false
 
 	var definition := ResearchRegistry.get_definition(research_id)
@@ -833,15 +921,57 @@ func research_idea(research_id: String) -> bool:
 		0.0,
 		float(definition.get("research_cost", 0.0))
 	)
-	cash_balance -= cost
-	total_expenses += cost
-	researched_ideas[research_id] = true
+	_record_expense(cost)
+	active_research_id = research_id
+	research_elapsed_seconds = 0.0
+	_last_research_progress_second = -1
 	_emit_economy_changed()
 
 	if event_bus != null:
 		event_bus.research_changed.emit(self)
 
 	return true
+
+
+func _advance_research(delta_seconds: float) -> void:
+	if delta_seconds <= 0.0 or active_research_id.is_empty():
+		return
+
+	var research_id := active_research_id
+	var definition := ResearchRegistry.get_definition(research_id)
+
+	if definition.is_empty():
+		active_research_id = ""
+		research_elapsed_seconds = 0.0
+		_last_research_progress_second = -1
+		return
+
+	var duration := get_research_duration_seconds(research_id)
+	research_elapsed_seconds = minf(
+		research_elapsed_seconds + delta_seconds,
+		duration
+	)
+
+	if research_elapsed_seconds >= duration:
+		researched_ideas[research_id] = true
+		active_research_id = ""
+		research_elapsed_seconds = 0.0
+		_last_research_progress_second = -1
+
+		if event_bus != null:
+			event_bus.research_changed.emit(self)
+
+		return
+
+	var progress_second := floori(research_elapsed_seconds)
+
+	if progress_second == _last_research_progress_second:
+		return
+
+	_last_research_progress_second = progress_second
+
+	if event_bus != null:
+		event_bus.research_changed.emit(self)
 
 
 func can_install_upgrade(

@@ -113,9 +113,16 @@ func _add_research_card(definition: Dictionary) -> void:
 	var researched := (
 		factory != null and factory.is_researched(research_id)
 	)
+	var researching := (
+		factory != null and factory.is_researching(research_id)
+	)
 	var cost := maxf(
 		0.0,
 		float(definition.get("research_cost", 0.0))
+	)
+	var duration := maxf(
+		1.0,
+		float(definition.get("research_duration_seconds", 60.0))
 	)
 	var panel := PanelContainer.new()
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -141,10 +148,17 @@ func _add_research_card(definition: Dictionary) -> void:
 	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(name_label)
 
-	var badge := UIWidgets.create_status_badge(
-		"Researched" if researched else "Available",
-		ThemeManager.COLOR_SUCCESS if researched else ThemeManager.COLOR_ACCENT
-	)
+	var badge_text := "Available"
+	var badge_color := ThemeManager.COLOR_ACCENT
+
+	if researched:
+		badge_text = "Complete"
+		badge_color = ThemeManager.COLOR_SUCCESS
+	elif researching:
+		badge_text = "In Progress"
+		badge_color = ThemeManager.COLOR_WARNING
+
+	var badge := UIWidgets.create_status_badge(badge_text, badge_color)
 	header.add_child(badge)
 
 	var description := Label.new()
@@ -158,8 +172,9 @@ func _add_research_card(definition: Dictionary) -> void:
 		float(definition.get("installation_cost", 0.0))
 	)
 	var details := Label.new()
-	details.text = "Research %s · Install %s per %s · %s" % [
+	details.text = "Research %s · %.0f s · Install %s per %s · %s" % [
 		_format_currency(cost),
+		duration,
 		_format_currency(installation_cost),
 		target_id.replace("_", " ").capitalize(),
 		ResearchRegistry.get_effect_summary(definition)
@@ -167,14 +182,35 @@ func _add_research_card(definition: Dictionary) -> void:
 	details.modulate = ThemeManager.COLOR_TEXT_MUTED
 	content.add_child(details)
 
+	if researching:
+		var progress := ProgressBar.new()
+		progress.min_value = 0.0
+		progress.max_value = 100.0
+		progress.value = factory.get_research_progress(research_id) * 100.0
+		progress.show_percentage = true
+		content.add_child(progress)
+
+		var remaining_label := Label.new()
+		remaining_label.text = "%.0f s remaining" % (
+			factory.get_research_remaining_seconds(research_id)
+		)
+		remaining_label.modulate = ThemeManager.COLOR_TEXT_MUTED
+		content.add_child(remaining_label)
+
 	var button := Button.new()
-	button.text = (
-		"Researched"
-		if researched
-		else "Research — %s" % _format_currency(cost)
-	)
+
+	if researched:
+		button.text = "Research Complete"
+	elif researching:
+		button.text = "Research In Progress"
+	elif factory != null and factory.has_active_research():
+		button.text = "Research Lab Busy"
+	else:
+		button.text = "Start Research — %s" % _format_currency(cost)
+
 	button.disabled = (
 		researched
+		or researching
 		or factory == null
 		or not factory.can_research(research_id)
 	)

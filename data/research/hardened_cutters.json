@@ -4,6 +4,7 @@
   "description": "Improved cutter materials resist abrasion and extend the Chipper's operating life between maintenance stops.",
   "target_machine_id": "chipper",
   "research_cost": 1800.0,
+  "research_duration_seconds": 60.0,
   "installation_cost": 600.0,
   "effects": {
     "wear_multiplier": 0.70

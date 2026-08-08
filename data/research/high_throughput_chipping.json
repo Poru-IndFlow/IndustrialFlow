@@ -4,6 +4,7 @@
   "description": "A more aggressive cutter and feed configuration raises output, with a corresponding increase in power demand.",
   "target_machine_id": "chipper",
   "research_cost": 3000.0,
+  "research_duration_seconds": 90.0,
   "installation_cost": 1200.0,
   "effects": {
     "output_multiplier": 1.15,
