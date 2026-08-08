@@ -25,7 +25,7 @@ func _ready() -> void:
 	var layout := VBoxContainer.new()
 	layout.add_theme_constant_override(
 		"separation",
-		ThemeManager.SPACING_MEDIUM
+		ThemeManager.SPACING_SMALL
 	)
 	add_child(layout)
 
@@ -35,7 +35,7 @@ func _ready() -> void:
 	_title_label = Label.new()
 	_title_label.text = dock_title
 	_title_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_title_label.add_theme_font_size_override("font_size", 17)
+	_title_label.add_theme_font_size_override("font_size", 16)
 	header.add_child(_title_label)
 
 	_collapse_button = Button.new()

@@ -32,6 +32,8 @@ var batch_count_value_label: Label
 var batch_inputs_value_label: Label
 var hold_after_batch_check_box: CheckBox
 var maintenance_section: VBoxContainer
+var maintenance_content: VBoxContainer
+var maintenance_toggle_button: Button
 var condition_badge: Label
 var condition_value_label: Label
 var breakdown_risk_value_label: Label
@@ -80,13 +82,13 @@ func _ready() -> void:
 	get_content_root().add_child(scroll)
 
 	var root := VBoxContainer.new()
-	root.add_theme_constant_override("separation", 8)
+	root.add_theme_constant_override("separation", 6)
 	root.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(root)
 
 	name_label = Label.new()
 	name_label.text = "No machine selected"
-	name_label.add_theme_font_size_override("font_size", 16)
+	name_label.add_theme_font_size_override("font_size", 15)
 	root.add_child(name_label)
 
 	id_label = Label.new()
@@ -234,16 +236,27 @@ func _ready() -> void:
 
 	maintenance_section = VBoxContainer.new()
 	operation_section.add_child(maintenance_section)
-
-	maintenance_section.add_child(
-		UIWidgets.create_section_header("Condition & Maintenance")
+	maintenance_toggle_button = _create_section_toggle(
+		"Condition & Maintenance",
+		false
+	)
+	maintenance_section.add_child(maintenance_toggle_button)
+	maintenance_content = VBoxContainer.new()
+	maintenance_content.add_theme_constant_override("separation", 4)
+	maintenance_content.visible = false
+	maintenance_section.add_child(maintenance_content)
+	maintenance_toggle_button.pressed.connect(
+		_toggle_section.bind(
+			maintenance_toggle_button,
+			maintenance_content
+		)
 	)
 
 	condition_badge = UIWidgets.create_status_badge(
 		"Good",
 		ThemeManager.COLOR_SUCCESS
 	)
-	maintenance_section.add_child(condition_badge)
+	maintenance_content.add_child(condition_badge)
 
 	var condition_row := UIWidgets.create_labeled_value(
 		"Condition",
@@ -252,7 +265,7 @@ func _ready() -> void:
 	condition_value_label = UIWidgets.get_value_label(
 		condition_row
 	)
-	maintenance_section.add_child(condition_row)
+	maintenance_content.add_child(condition_row)
 
 	var breakdown_risk_row := UIWidgets.create_labeled_value(
 		"Breakdown chance",
@@ -261,7 +274,7 @@ func _ready() -> void:
 	breakdown_risk_value_label = UIWidgets.get_value_label(
 		breakdown_risk_row
 	)
-	maintenance_section.add_child(breakdown_risk_row)
+	maintenance_content.add_child(breakdown_risk_row)
 
 	var condition_efficiency_row := UIWidgets.create_labeled_value(
 		"Condition efficiency",
@@ -270,7 +283,7 @@ func _ready() -> void:
 	condition_efficiency_value_label = UIWidgets.get_value_label(
 		condition_efficiency_row
 	)
-	maintenance_section.add_child(condition_efficiency_row)
+	maintenance_content.add_child(condition_efficiency_row)
 
 	var wear_power_row := UIWidgets.create_labeled_value(
 		"Wear power multiplier",
@@ -279,7 +292,7 @@ func _ready() -> void:
 	wear_power_value_label = UIWidgets.get_value_label(
 		wear_power_row
 	)
-	maintenance_section.add_child(wear_power_row)
+	maintenance_content.add_child(wear_power_row)
 
 	var operating_hours_row := UIWidgets.create_labeled_value(
 		"Operating hours",
@@ -288,7 +301,7 @@ func _ready() -> void:
 	operating_hours_value_label = UIWidgets.get_value_label(
 		operating_hours_row
 	)
-	maintenance_section.add_child(operating_hours_row)
+	maintenance_content.add_child(operating_hours_row)
 
 	var maintenance_plan_row := UIWidgets.create_labeled_value(
 		"Maintenance plan",
@@ -297,17 +310,17 @@ func _ready() -> void:
 	maintenance_plan_value_label = UIWidgets.get_value_label(
 		maintenance_plan_row
 	)
-	maintenance_section.add_child(maintenance_plan_row)
+	maintenance_content.add_child(maintenance_plan_row)
 
 	maintenance_policy_check_box = CheckBox.new()
 	maintenance_policy_check_box.text = "Automatic preventive maintenance"
 	maintenance_policy_check_box.toggled.connect(
 		_on_maintenance_policy_toggled
 	)
-	maintenance_section.add_child(maintenance_policy_check_box)
+	maintenance_content.add_child(maintenance_policy_check_box)
 
 	var policy_condition_row := HBoxContainer.new()
-	maintenance_section.add_child(policy_condition_row)
+	maintenance_content.add_child(policy_condition_row)
 
 	var policy_condition_label := Label.new()
 	policy_condition_label.text = "Service threshold"
@@ -326,7 +339,7 @@ func _ready() -> void:
 	policy_condition_row.add_child(maintenance_policy_condition_spin_box)
 
 	var policy_reserve_row := HBoxContainer.new()
-	maintenance_section.add_child(policy_reserve_row)
+	maintenance_content.add_child(policy_reserve_row)
 
 	var policy_reserve_label := Label.new()
 	policy_reserve_label.text = "Minimum cash reserve"
@@ -351,7 +364,7 @@ func _ready() -> void:
 	maintenance_policy_status_value_label = UIWidgets.get_value_label(
 		policy_status_row
 	)
-	maintenance_section.add_child(policy_status_row)
+	maintenance_content.add_child(policy_status_row)
 
 	var preventive_maintenance_row := UIWidgets.create_labeled_value(
 		"Preventive services",
@@ -360,7 +373,7 @@ func _ready() -> void:
 	preventive_maintenance_value_label = UIWidgets.get_value_label(
 		preventive_maintenance_row
 	)
-	maintenance_section.add_child(preventive_maintenance_row)
+	maintenance_content.add_child(preventive_maintenance_row)
 
 	var emergency_repairs_row := UIWidgets.create_labeled_value(
 		"Failures / emergency repairs",
@@ -369,7 +382,7 @@ func _ready() -> void:
 	emergency_repairs_value_label = UIWidgets.get_value_label(
 		emergency_repairs_row
 	)
-	maintenance_section.add_child(emergency_repairs_row)
+	maintenance_content.add_child(emergency_repairs_row)
 
 	var maintenance_spend_row := UIWidgets.create_labeled_value(
 		"Maintenance spend",
@@ -378,28 +391,28 @@ func _ready() -> void:
 	maintenance_spend_value_label = UIWidgets.get_value_label(
 		maintenance_spend_row
 	)
-	maintenance_section.add_child(maintenance_spend_row)
+	maintenance_content.add_child(maintenance_spend_row)
 
 	var downtime_row := UIWidgets.create_labeled_value(
 		"Total downtime",
 		"0 s"
 	)
 	downtime_value_label = UIWidgets.get_value_label(downtime_row)
-	maintenance_section.add_child(downtime_row)
+	maintenance_content.add_child(downtime_row)
 
 	maintenance_progress_bar = ProgressBar.new()
 	maintenance_progress_bar.min_value = 0.0
 	maintenance_progress_bar.max_value = 100.0
 	maintenance_progress_bar.value = 0.0
 	maintenance_progress_bar.show_percentage = true
-	maintenance_section.add_child(maintenance_progress_bar)
+	maintenance_content.add_child(maintenance_progress_bar)
 
 	maintenance_button = Button.new()
 	maintenance_button.text = "Perform Maintenance"
 	maintenance_button.pressed.connect(
 		_on_maintenance_pressed
 	)
-	maintenance_section.add_child(maintenance_button)
+	maintenance_content.add_child(maintenance_button)
 
 	var control_separator := HSeparator.new()
 	operation_section.add_child(control_separator)
@@ -527,6 +540,10 @@ func _ready() -> void:
 	# Operator controls belong ahead of live performance and maintenance details.
 	operation_section.move_child(control_separator, 3)
 	operation_section.move_child(control_section, 4)
+	var performance_title := UIWidgets.create_section_header("Live Performance")
+	performance_title.add_theme_font_size_override("font_size", 13)
+	operation_section.add_child(performance_title)
+	operation_section.move_child(performance_title, 5)
 
 	operation_section.add_child(HSeparator.new())
 
@@ -605,6 +622,42 @@ func _ready() -> void:
 
 	inventory_list = VBoxContainer.new()
 	root.add_child(inventory_list)
+
+
+func _create_section_toggle(title: String, expanded: bool) -> Button:
+	var button := Button.new()
+	button.flat = true
+	button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	button.set_meta("section_label", title)
+	button.text = "%s %s" % ["▼" if expanded else "▶", title]
+	return button
+
+
+func _toggle_section(button: Button, content: VBoxContainer) -> void:
+	content.visible = not content.visible
+	_update_section_toggle(button, content)
+
+
+func _update_section_toggle(button: Button, content: VBoxContainer) -> void:
+	var section_label := str(button.get_meta("section_label", "Section"))
+	button.text = "%s %s" % [
+		"▼" if content.visible else "▶",
+		section_label
+	]
+
+
+func _update_maintenance_toggle_summary() -> void:
+	if maintenance_toggle_button == null or maintenance_content == null:
+		return
+
+	var section_label := "Condition & Maintenance"
+	if selected_machine != null:
+		section_label += " · %s · %.0f%%" % [
+			_condition_text(selected_machine),
+			selected_machine.condition * 100.0
+		]
+	maintenance_toggle_button.set_meta("section_label", section_label)
+	_update_section_toggle(maintenance_toggle_button, maintenance_content)
 
 
 func bind_refresh_manager(manager: RefreshManager) -> void:
@@ -1261,6 +1314,7 @@ func _update_condition_labels() -> void:
 			"No condition data",
 			ThemeManager.COLOR_TEXT_MUTED
 		)
+		_update_maintenance_toggle_summary()
 		return
 
 	condition_value_label.text = "%.1f%%" % (
@@ -1348,6 +1402,7 @@ func _update_condition_labels() -> void:
 		_condition_text(selected_machine),
 		_condition_color(selected_machine)
 	)
+	_update_maintenance_toggle_summary()
 
 
 func _update_control_labels() -> void:

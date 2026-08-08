@@ -97,6 +97,7 @@ func create_editor_theme() -> Theme:
 		)
 	)
 
+	_configure_workspace_tabs(editor_theme)
 	return editor_theme
 
 
@@ -106,6 +107,47 @@ static func make_badge_style(color: Color) -> StyleBoxFlat:
 		color.darkened(0.15),
 		1,
 		SPACING_SMALL
+	)
+
+
+static func _configure_workspace_tabs(editor_theme: Theme) -> void:
+	editor_theme.set_color(
+		"font_selected_color",
+		"TabContainer",
+		COLOR_TEXT
+	)
+	editor_theme.set_color(
+		"font_unselected_color",
+		"TabContainer",
+		COLOR_TEXT_MUTED
+	)
+	editor_theme.set_color(
+		"font_hovered_color",
+		"TabContainer",
+		COLOR_TEXT
+	)
+	editor_theme.set_font_size("font_size", "TabContainer", 13)
+	editor_theme.set_constant("side_margin", "TabContainer", SPACING_SMALL)
+	editor_theme.set_constant("tab_separation", "TabContainer", 2)
+	editor_theme.set_stylebox(
+		"tab_selected",
+		"TabContainer",
+		_make_tab_stylebox(COLOR_SURFACE_RAISED, COLOR_ACCENT, 2)
+	)
+	editor_theme.set_stylebox(
+		"tab_hovered",
+		"TabContainer",
+		_make_tab_stylebox(COLOR_SURFACE, COLOR_ACCENT_HOVER, 1)
+	)
+	editor_theme.set_stylebox(
+		"tab_unselected",
+		"TabContainer",
+		_make_tab_stylebox(COLOR_BACKGROUND, COLOR_BORDER, 1)
+	)
+	editor_theme.set_stylebox(
+		"tab_focus",
+		"TabContainer",
+		_make_tab_stylebox(Color.TRANSPARENT, COLOR_ACCENT, 1)
 	)
 
 
@@ -124,4 +166,22 @@ static func _make_stylebox(
 	style.content_margin_top = padding
 	style.content_margin_right = padding
 	style.content_margin_bottom = padding
+	return style
+
+
+static func _make_tab_stylebox(
+	background_color: Color,
+	border_color: Color,
+	bottom_border_width: int
+) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = background_color
+	style.border_color = border_color
+	style.border_width_bottom = bottom_border_width
+	style.corner_radius_top_left = CORNER_RADIUS
+	style.corner_radius_top_right = CORNER_RADIUS
+	style.content_margin_left = 10
+	style.content_margin_top = 6
+	style.content_margin_right = 10
+	style.content_margin_bottom = 6
 	return style

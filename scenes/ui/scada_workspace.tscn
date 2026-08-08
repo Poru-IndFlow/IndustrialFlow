@@ -1,6 +1,7 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://scripts/ui/scada_workspace.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/ui/scada_graph.gd" id="2"]
 
 [node name="SCADA" type="VBoxContainer"]
 layout_mode = 2
@@ -107,6 +108,8 @@ size_flags_vertical = 3
 right_disconnects = false
 show_arrange_button = false
 minimap_enabled = true
+connection_lines_thickness = 3.0
+script = ExtResource("2")
 
 [node name="AlarmPanel" type="PanelContainer" parent="."]
 custom_minimum_size = Vector2(0, 190)
