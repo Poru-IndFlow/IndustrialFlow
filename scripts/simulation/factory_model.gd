@@ -982,6 +982,9 @@ func can_install_upgrade(
 		machine == null
 		or not is_researched(research_id)
 		or machine.has_upgrade(research_id)
+		or machine.is_upgrade_in_progress()
+		or machine.is_under_maintenance()
+		or machine.is_failed()
 	):
 		return false
 
@@ -1010,12 +1013,18 @@ func install_machine_upgrade(
 		0.0,
 		float(definition.get("installation_cost", 0.0))
 	)
+	var installation_duration := maxf(
+		0.1,
+		float(definition.get("installation_duration_seconds", 30.0))
+	)
 
-	if not machine.install_upgrade(research_id):
+	if not machine.start_upgrade_installation(
+		research_id,
+		installation_duration
+	):
 		return false
 
-	cash_balance -= installation_cost
-	total_expenses += installation_cost
+	_record_expense(installation_cost)
 	_adjust_machine_lifetime(
 		machine.instance_id,
 		0.0,

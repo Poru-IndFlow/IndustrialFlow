@@ -8,7 +8,8 @@ enum State {
 	BLOCKED_OUTPUT,
 	DISABLED,
 	MAINTENANCE,
-	FAILED
+	FAILED,
+	UPGRADING
 }
 
 enum ControlMode {
@@ -84,6 +85,9 @@ var placement_committed := true
 var production_rates_per_second: Dictionary = {}
 var consumption_rates_per_second: Dictionary = {}
 var installed_upgrades: Array[String] = []
+var upgrade_installation_id := ""
+var upgrade_installation_remaining_seconds := 0.0
+var upgrade_installation_total_seconds := 0.0
 var _produced_in_window: Dictionary = {}
 var _consumed_in_window: Dictionary = {}
 var _economic_production: Dictionary = {}
@@ -91,6 +95,7 @@ var _economic_consumption: Dictionary = {}
 var _telemetry_elapsed := 0.0
 var _last_condition_notification := 1.0
 var _last_hours_notification := 0.0
+var _last_upgrade_notification_second := -1
 
 const TELEMETRY_WINDOW_SECONDS := 1.0
 const MIN_GRID_FOOTPRINT := 4
@@ -370,6 +375,13 @@ func tick(delta_seconds: float) -> void:
 		_update_power_demand()
 		return
 
+	if is_upgrade_in_progress():
+		actual_operating_rate = 0.0
+		set_state(State.UPGRADING)
+		_advance_upgrade_installation(delta_seconds)
+		_update_power_demand()
+		return
+
 	if is_under_maintenance():
 		actual_operating_rate = 0.0
 		set_state(State.MAINTENANCE)
@@ -465,6 +477,143 @@ func get_active_power_demand() -> float:
 
 func has_upgrade(research_id: String) -> bool:
 	return installed_upgrades.has(research_id)
+
+
+func is_upgrade_in_progress() -> bool:
+	return (
+		not upgrade_installation_id.is_empty()
+		and upgrade_installation_remaining_seconds > 0.0
+	)
+
+
+func is_installing_upgrade(research_id: String) -> bool:
+	return (
+		is_upgrade_in_progress()
+		and upgrade_installation_id == research_id
+	)
+
+
+func start_upgrade_installation(
+	research_id: String,
+	duration_seconds: float
+) -> bool:
+	if (
+		research_id.is_empty()
+		or has_upgrade(research_id)
+		or is_upgrade_in_progress()
+		or is_under_maintenance()
+		or is_failed()
+	):
+		return false
+
+	var definition := ResearchRegistry.get_definition(research_id)
+
+	if (
+		definition.is_empty()
+		or str(definition.get("target_machine_id", ""))
+		!= definition_id
+	):
+		return false
+
+	upgrade_installation_id = research_id
+	upgrade_installation_total_seconds = maxf(duration_seconds, 0.1)
+	upgrade_installation_remaining_seconds = upgrade_installation_total_seconds
+	_last_upgrade_notification_second = int(ceil(
+		upgrade_installation_remaining_seconds
+	))
+	actual_operating_rate = 0.0
+	set_state(State.UPGRADING)
+	_update_power_demand()
+	_notify_upgrade_changed()
+	return true
+
+
+func get_upgrade_installation_progress() -> float:
+	if upgrade_installation_total_seconds <= 0.0:
+		return 0.0
+
+	return clampf(
+		1.0
+		- upgrade_installation_remaining_seconds
+		/ upgrade_installation_total_seconds,
+		0.0,
+		1.0
+	)
+
+
+func restore_upgrade_installation(
+	research_id: String,
+	remaining_seconds: float,
+	total_seconds: float
+) -> void:
+	upgrade_installation_id = ""
+	upgrade_installation_remaining_seconds = 0.0
+	upgrade_installation_total_seconds = 0.0
+	_last_upgrade_notification_second = -1
+
+	if (
+		research_id.is_empty()
+		or has_upgrade(research_id)
+		or remaining_seconds <= 0.0
+		or total_seconds <= 0.0
+	):
+		return
+
+	var definition := ResearchRegistry.get_definition(research_id)
+
+	if (
+		definition.is_empty()
+		or str(definition.get("target_machine_id", ""))
+		!= definition_id
+	):
+		return
+
+	upgrade_installation_id = research_id
+	upgrade_installation_total_seconds = maxf(total_seconds, 0.1)
+	upgrade_installation_remaining_seconds = clampf(
+		remaining_seconds,
+		0.0,
+		upgrade_installation_total_seconds
+	)
+	_last_upgrade_notification_second = int(ceil(
+		upgrade_installation_remaining_seconds
+	))
+	actual_operating_rate = 0.0
+	state = State.UPGRADING
+
+
+func _advance_upgrade_installation(delta_seconds: float) -> void:
+	if delta_seconds <= 0.0 or not is_upgrade_in_progress():
+		return
+
+	upgrade_installation_remaining_seconds = maxf(
+		0.0,
+		upgrade_installation_remaining_seconds - delta_seconds
+	)
+
+	if upgrade_installation_remaining_seconds <= 0.0:
+		var completed_research_id := upgrade_installation_id
+		upgrade_installation_id = ""
+		upgrade_installation_total_seconds = 0.0
+		_last_upgrade_notification_second = -1
+		install_upgrade(completed_research_id)
+		set_state(State.DISABLED if not enabled else State.IDLE)
+		return
+
+	var remaining_whole_seconds := int(ceil(
+		upgrade_installation_remaining_seconds
+	))
+
+	if remaining_whole_seconds == _last_upgrade_notification_second:
+		return
+
+	_last_upgrade_notification_second = remaining_whole_seconds
+	_notify_upgrade_changed()
+
+
+func _notify_upgrade_changed() -> void:
+	if event_bus != null:
+		event_bus.machine_upgrades_changed.emit(self)
 
 
 func install_upgrade(research_id: String) -> bool:
@@ -664,6 +813,7 @@ func get_current_maintenance_duration() -> float:
 func can_start_maintenance() -> bool:
 	return (
 		supports_maintenance()
+		and not is_upgrade_in_progress()
 		and not is_under_maintenance()
 		and condition < 0.999
 	)
@@ -915,6 +1065,9 @@ func notify_condition_changed() -> void:
 
 
 func get_power_mode() -> String:
+	if is_upgrade_in_progress():
+		return "Upgrade installation"
+
 	if is_under_maintenance():
 		return "Maintenance"
 

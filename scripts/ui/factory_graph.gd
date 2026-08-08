@@ -2116,6 +2116,8 @@ func _state_color(state: MachineModel.State) -> Color:
 			return ThemeManager.COLOR_DANGER
 		MachineModel.State.MAINTENANCE:
 			return ThemeManager.COLOR_ACCENT
+		MachineModel.State.UPGRADING:
+			return ThemeManager.COLOR_WARNING
 		MachineModel.State.DISABLED:
 			return ThemeManager.COLOR_TEXT_MUTED
 		_:

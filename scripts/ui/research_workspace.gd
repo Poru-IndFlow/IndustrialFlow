@@ -171,11 +171,16 @@ func _add_research_card(definition: Dictionary) -> void:
 		0.0,
 		float(definition.get("installation_cost", 0.0))
 	)
+	var installation_duration := maxf(
+		0.1,
+		float(definition.get("installation_duration_seconds", 30.0))
+	)
 	var details := Label.new()
-	details.text = "Research %s · %.0f s · Install %s per %s · %s" % [
+	details.text = "Research %s · %.0f s · Install %s + %.0f s downtime per %s · %s" % [
 		_format_currency(cost),
 		duration,
 		_format_currency(installation_cost),
+		installation_duration,
 		target_id.replace("_", " ").capitalize(),
 		ResearchRegistry.get_effect_summary(definition)
 	]

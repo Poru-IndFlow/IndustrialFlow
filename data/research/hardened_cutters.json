@@ -6,6 +6,7 @@
   "research_cost": 1800.0,
   "research_duration_seconds": 60.0,
   "installation_cost": 600.0,
+  "installation_duration_seconds": 30.0,
   "effects": {
     "wear_multiplier": 0.70
   }

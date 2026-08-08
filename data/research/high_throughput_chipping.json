@@ -6,6 +6,7 @@
   "research_cost": 3000.0,
   "research_duration_seconds": 90.0,
   "installation_cost": 1200.0,
+  "installation_duration_seconds": 40.0,
   "effects": {
     "output_multiplier": 1.15,
     "power_multiplier": 1.10

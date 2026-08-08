@@ -1157,10 +1157,15 @@ func _update_upgrade_section() -> void:
 	for definition: Dictionary in definitions:
 		var research_id := str(definition.get("id", ""))
 		var installed := selected_machine.has_upgrade(research_id)
+		var installing := selected_machine.is_installing_upgrade(research_id)
 		var researched := factory.is_researched(research_id)
 		var installation_cost := maxf(
 			0.0,
 			float(definition.get("installation_cost", 0.0))
+		)
+		var installation_duration := maxf(
+			0.1,
+			float(definition.get("installation_duration_seconds", 30.0))
 		)
 		var status := Label.new()
 		status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -1174,6 +1179,12 @@ func _update_upgrade_section() -> void:
 				effect_summary
 			]
 			status.modulate = ThemeManager.COLOR_SUCCESS
+		elif installing:
+			status.text = "%s — Installing\n%s" % [
+				str(definition.get("display_name", research_id)),
+				effect_summary
+			]
+			status.modulate = ThemeManager.COLOR_WARNING
 		elif not researched:
 			status.text = "%s — Research required\n%s" % [
 				str(definition.get("display_name", research_id)),
@@ -1189,14 +1200,39 @@ func _update_upgrade_section() -> void:
 
 		upgrade_list.add_child(status)
 
+		if installing:
+			var progress := ProgressBar.new()
+			progress.min_value = 0.0
+			progress.max_value = 100.0
+			progress.value = (
+				selected_machine.get_upgrade_installation_progress()
+				* 100.0
+			)
+			progress.show_percentage = true
+			upgrade_list.add_child(progress)
+
+			var remaining_label := Label.new()
+			remaining_label.text = "%.0f s remaining of %.0f s" % [
+				selected_machine.upgrade_installation_remaining_seconds,
+				installation_duration
+			]
+			remaining_label.modulate = ThemeManager.COLOR_TEXT_MUTED
+			upgrade_list.add_child(remaining_label)
+
 		var button := Button.new()
-		button.text = (
-			"Installed"
-			if installed
-			else "Install — $%.2f" % installation_cost
-		)
+
+		if installed:
+			button.text = "Installed"
+		elif installing:
+			button.text = "Installation In Progress"
+		elif selected_machine.is_upgrade_in_progress():
+			button.text = "Another Upgrade Is Installing"
+		else:
+			button.text = "Install — $%.2f" % installation_cost
+
 		button.disabled = (
 			installed
+			or installing
 			or not researched
 			or not factory.can_install_upgrade(
 				selected_machine,
@@ -1852,6 +1888,8 @@ func _state_color(state: MachineModel.State) -> Color:
 			return ThemeManager.COLOR_DANGER
 		MachineModel.State.MAINTENANCE:
 			return ThemeManager.COLOR_ACCENT
+		MachineModel.State.UPGRADING:
+			return ThemeManager.COLOR_WARNING
 		MachineModel.State.FAILED:
 			return ThemeManager.COLOR_DANGER
 		_:
